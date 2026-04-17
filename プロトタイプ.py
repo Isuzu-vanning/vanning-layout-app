@@ -106,10 +106,10 @@ class Item:
 # --- 4. コンテナクラス ---
 class Container:
     def __init__(self):
-        # 40ft専用
-        self.w, self.d, self.h = 12032, 2352, 2393
+        # 40ft専用 (提供された実寸法に合わせる)
+        self.w, self.d, self.h = 12000, 2300, 2400
         self.max_weight = 26500
-        self.door_w, self.door_h = 2340, 2280 # 仮設定
+        self.door_w, self.door_h = 2300, 2400 # 庫内寸法とぴったり同じに設定して制限を開放
         self.items = []
         self.unloaded_items = []
         self.total_weight = 0
