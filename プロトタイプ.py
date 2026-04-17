@@ -481,7 +481,8 @@ class App:
 
         is_weight_ok = self.container.total_weight <= self.container.max_weight
         weight_ratio = (self.container.total_weight / self.container.max_weight) * 100
-        is_cog_ok = abs(devs[0]) < 5 and abs(devs[1]) < 5
+        # 左右の偏荷重(devs[1])は条件に基づき考慮外とする
+        is_cog_ok = abs(devs[0]) < 5
         
         if not is_weight_ok: status = "重量オーバー"; color = "red"
         elif not is_cog_ok: status = "偏荷重注意"; color = "red"
