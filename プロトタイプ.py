@@ -7,6 +7,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as np
 import sys
 import os
+import random
 from collections import Counter # 集計用
 
 # --- 1. フォント設定・カラーパレット ---
@@ -89,7 +90,7 @@ class Item:
         self.w = master_data['w']
         self.d = master_data['d']
         self.h = master_data['h']
-        self.weight = master_data['weight']
+        self.weight = random.randint(1000, 15000) # [NEW] 1,000kg〜15,000kgのランダム重量
         self.color = master_data['color']
         self.offset = master_data['offset']
         self.position = None
