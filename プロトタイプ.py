@@ -105,16 +105,11 @@ class Item:
 
 # --- 4. コンテナクラス ---
 class Container:
-    def __init__(self, size_type="20ft"):
-        if size_type == "20ft":
-            # 内寸: 長さ5898mm, 幅2350mm, 高さ2390mm
-            self.w, self.d, self.h = 5898, 2350, 2390
-            self.max_weight = 22000 # 最大積載重量: 約22,000kg
-            self.door_w, self.door_h = 2340, 2280 # 扉開口部: 幅2340mm, 高さ2280mm
-        elif size_type == "40ft":
-            self.w, self.d, self.h = 12032, 2352, 2393
-            self.max_weight = 26500
-            self.door_w, self.door_h = 2340, 2280 # 仮設定
+    def __init__(self):
+        # 40ft専用
+        self.w, self.d, self.h = 12032, 2352, 2393
+        self.max_weight = 26500
+        self.door_w, self.door_h = 2340, 2280 # 仮設定
         self.items = []
         self.unloaded_items = []
         self.total_weight = 0
@@ -331,32 +326,8 @@ class App:
         ctrl_frame = tk.Frame(self.left_frame, bg=Colors.BG_PANEL, padx=20)
         ctrl_frame.pack(fill=tk.X)
         
-        tk.Label(ctrl_frame, text="CONTAINER TYPE", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, 
+        tk.Label(ctrl_frame, text="CONTAINER TYPE: 40ft (Max 26.5t)", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, 
                  font=Fonts.BODY_BOLD).pack(anchor=tk.W, pady=(10, 5))
-        
-        self.cont_type = tk.StringVar(value="20ft")
-        
-        def set_cont(val):
-            self.cont_type.set(val)
-            # シンプルな見た目の切り替え
-            if val == "20ft":
-                btn_20.config(bg=Colors.ACCENT_MAIN, fg=Colors.BG_MAIN)
-                btn_40.config(bg=Colors.BG_CARD, fg=Colors.TEXT_DIM)
-            else:
-                btn_20.config(bg=Colors.BG_CARD, fg=Colors.TEXT_DIM)
-                btn_40.config(bg=Colors.ACCENT_MAIN, fg=Colors.BG_MAIN)
-            self.run_simulation()
-
-        btn_box = tk.Frame(ctrl_frame, bg=Colors.BG_PANEL)
-        btn_box.pack(fill=tk.X, pady=5)
-        
-        btn_20 = tk.Button(btn_box, text="20ft\n(Max 24t)", bg=Colors.ACCENT_MAIN, fg=Colors.BG_MAIN, 
-                           font=Fonts.BODY_BOLD, relief="flat", command=lambda: set_cont("20ft"))
-        btn_20.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        
-        btn_40 = tk.Button(btn_box, text="40ft\n(Max 26.5t)", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, 
-                           font=Fonts.BODY_BOLD, relief="flat", command=lambda: set_cont("40ft"))
-        btn_40.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
 
         # 部品リストヘッダー
         tk.Label(ctrl_frame, text="PARTS SELECTION", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, 
@@ -497,7 +468,7 @@ class App:
                 master = PARTS_MASTER[key]
                 for i in range(qty): items_to_load.append(Item(key, master, i))
         
-        self.container = Container(self.cont_type.get())
+        self.container = Container()
         self.container.load_items(items_to_load)
         cog, devs = self.container.get_cog_stats()
 
@@ -588,8 +559,8 @@ class App:
         self.ax = self.fig.add_subplot(111, projection='3d')
         self.ax.set_facecolor(Colors.BG_MAIN) # Plot bg
         
-        c = Container(self.cont_type.get())
-        self.ax.set_title(f"バンニング計画図 ({self.cont_type.get()})", fontsize=14, color=Colors.ACCENT_MAIN)
+        c = Container()
+        self.ax.set_title("バンニング計画図 (40ft)", fontsize=14, color=Colors.ACCENT_MAIN)
         self.ax.set_xlim([0, c.w]); self.ax.set_ylim([0, c.d]); self.ax.set_zlim([0, c.h])
         self.ax.set_box_aspect((c.w, c.d, c.h))
         
@@ -627,7 +598,7 @@ class App:
         self.ax = self.fig.add_subplot(111, projection='3d')
         self.ax.set_facecolor(Colors.BG_MAIN)
         
-        self.ax.set_title(f"PLAN: {self.cont_type.get()}", fontsize=14, color=Colors.ACCENT_MAIN)
+        self.ax.set_title("PLAN: 40ft", fontsize=14, color=Colors.ACCENT_MAIN)
         c = self.container
         self.ax.set_xlim([0, c.w]); self.ax.set_ylim([0, c.d]); self.ax.set_zlim([0, c.h]); self.ax.set_box_aspect((c.w, c.d, c.h))
 
