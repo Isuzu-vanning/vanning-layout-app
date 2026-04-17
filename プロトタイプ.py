@@ -395,7 +395,7 @@ class App:
             tk.Label(info_frame, text=spec_text, bg="white", fg="gray", font=("Meiryo", 8), anchor="w").pack(fill=tk.X)
             var = tk.IntVar(value=0); self.qty_vars[key] = var
             # リアルタイム更新のバインディング
-            spin = tk.Spinbox(row_frame, from_=0, to=100, textvariable=var, width=5, font=("Meiryo", 12), command=self.run_simulation)
+            spin = tk.Spinbox(row_frame, from_=0, to=40, textvariable=var, width=5, font=("Meiryo", 12), command=self.run_simulation)
             spin.bind("<KeyRelease>", lambda e: self.run_simulation())
             spin.pack(side=tk.RIGHT, padx=5); tk.Label(row_frame, text="個", bg="white").pack(side=tk.RIGHT)
 
@@ -409,6 +409,7 @@ class App:
         self.result_text.tag_config("red", foreground="#FF3333", font=("MS Gothic", 9, "bold"))
         self.result_text.tag_config("blue", foreground="#33FFFF", font=("MS Gothic", 9, "bold"))
         self.result_text.tag_config("green", foreground="#66FF66", font=("MS Gothic", 9, "bold"))
+        self.result_text.tag_config("yellow", foreground="#FFCC00", font=("MS Gothic", 9, "bold"))
         self.result_text.tag_config("white", foreground="#FFFFFF", font=("MS Gothic", 9))
 
         # 追加提案・決定エリア（ダークテーマ化）
@@ -424,7 +425,7 @@ class App:
         self.suggest_combo.pack(side=tk.LEFT, padx=2)
         
         self.add_qty_var = tk.IntVar(value=1)
-        tk.Spinbox(suggest_frame, from_=1, to=100, textvariable=self.add_qty_var, width=3, font=("Meiryo", 10)).pack(side=tk.LEFT, padx=5)
+        tk.Spinbox(suggest_frame, from_=1, to=40, textvariable=self.add_qty_var, width=3, font=("Meiryo", 10)).pack(side=tk.LEFT, padx=5)
         
         # 決定ボタン（HUDスタイル）
         decide_btn_frame = tk.Frame(suggest_frame, bg="#00FFFF", padx=1, pady=1) # Border
@@ -517,6 +518,9 @@ class App:
 
         self.result_text.insert(tk.END, f"判定: [{status}]\n", color)
         self.result_text.insert(tk.END, f"総重量: {self.container.total_weight:,}kg ({weight_ratio:.1f}%)\n")
+        
+        if len(items_to_load) > 40:
+            self.result_text.insert(tk.END, "※警告: 合計ケース数が通常の上限(40)を上回っています\n", "yellow")
         
         if len(self.container.unloaded_items) > 0:
             self.result_text.insert(tk.END, "-"*30 + "\n")
