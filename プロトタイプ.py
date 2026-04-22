@@ -375,6 +375,10 @@ class App:
             info_frame = tk.Frame(row_frame, bg=Colors.BG_CARD); info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             tk.Label(info_frame, text=data['name'], bg=Colors.BG_CARD, fg="white", font=("Meiryo", 10, "bold"), anchor="w").pack(fill=tk.X)
             
+            # [NEW] 寸法と重量案内の追加表示
+            dim_text = f"サイズ: L{data['w']} x W{data['d']} x H{data['h']} / 重量: 変動(1000~15000kg)"
+            tk.Label(info_frame, text=dim_text, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=("Meiryo", 8), anchor="w").pack(fill=tk.X)
+            
             var = tk.IntVar(value=0)
             self.qty_vars[key] = var
             self.last_quantities[key] = 0
@@ -465,7 +469,7 @@ class App:
             cur = self.qty_vars[k].get()
             self.qty_vars[k].set(cur + 1)
             self.on_slider_change(k, str(cur + 1))
-        self.run_simulation()
+        # マニフェスト作成時点では自動でバンニングを実行しない
 
     def clear_all_items(self, run_sim=True):
         for key, var in self.qty_vars.items():
@@ -612,9 +616,9 @@ class App:
         for item in c.items:
             draw_box(item, False)
             
-        # エラーではみ出た・重量オーバーしたアイテム ([NEW] 赤色描画)
-        for e_item in c.unloaded_items:
-            draw_box(e_item, True)
+        # エラーではみ出た・重量オーバーしたアイテムの描画は非表示にする
+        # for e_item in c.unloaded_items:
+        #     draw_box(e_item, True)
 
         # [NEW] 重心ボール表示
         if c.total_weight > 0:
