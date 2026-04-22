@@ -566,13 +566,15 @@ class App:
         self.run_simulation()
 
     def load_yearly_layout(self):
-        file_path = "vanning_layout_2026.xlsx"
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(base_dir, "vanning_layout_2026.xlsx")
+        
         if not os.path.exists(file_path):
-            messagebox.showerror("エラー", f"'{file_path}' が見つかりません。")
+            messagebox.showerror("エラー", f"'{file_path}' が見つかりません。\nパス: {file_path}")
             return
         
         self.yearly_xl = pd.ExcelFile(file_path)
-        self.append_log(f"📅 年間予定表 '{file_path}' を読み込みました。")
+        self.append_log(f"📅 年間予定表を読み込みました。")
         self.on_month_selected(None)
 
     def on_month_selected(self, event):
@@ -580,10 +582,8 @@ class App:
             return
             
         month_str = self.month_combo.get()
-        # シート名は "1月", "2月" ... だが、ファイルによっては "1" などの可能性もあるため柔軟に対応
         sheet_name = month_str
         if sheet_name not in self.yearly_xl.sheet_names:
-            # 代替案として数字のみを試す
             sheet_name = month_str.replace("月", "")
             if sheet_name not in self.yearly_xl.sheet_names:
                 messagebox.showerror("エラー", f"シート '{month_str}' が見つかりません。")
@@ -592,47 +592,53 @@ class App:
         df = pd.read_excel(self.yearly_xl, sheet_name=sheet_name, header=None)
         
         self.clear_all_items(run_sim=False)
-        self.append_log(f"🔍 {month_str} の全コンテナからデータを抽出中...")
+        self.append_log(f"🔍 {month_str} の全データを抽出中...")
         
-        # vanning_layout_2026.xlsx 特有のフォーマット解析
-        # ヘッダー行: 「種別, ID, 名称, L, W, H, 重量(kg)」 を探す
         loaded_count = 0
         name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
         
         for i, row in df.iterrows():
-            # 無視する行（空行やタイトル行）
             if pd.isna(row[0]) or "Container" in str(row[0]) or "種別" in str(row[0]):
                 continue
             
-            part_name = str(row[2]).strip()
-            clean_name = part_name.replace(" ", "").replace("　","")
-            
-            # マスタに存在するかチェック
+            # IDによる紐付け (Excelの2列目がID 1, 2, ... 31 となっている)
             matched_key = None
-            if clean_name in name_to_key:
-                matched_key = name_to_key[clean_name]
-            else:
-                # 名称が一部含まれているか（IPPC A -> IPPC燻蒸A など）の曖昧一致
-                for m_name, m_key in name_to_key.items():
-                    if clean_name in m_name or m_name in clean_name:
-                        matched_key = m_key
-                        break
+            try:
+                raw_id = int(row[1])
+                test_key = f"CASE_{raw_id:02d}"
+                if test_key in PARTS_MASTER:
+                    matched_key = test_key
+            except:
+                pass
+            
+            # IDで見つからなかった場合は名前で探す
+            if not matched_key:
+                part_name = str(row[2]).strip()
+                clean_name = part_name.replace(" ", "").replace("　","")
+                if clean_name in name_to_key:
+                    matched_key = name_to_key[clean_name]
+                else:
+                    for m_name, m_key in name_to_key.items():
+                        if clean_name in m_name or m_name in clean_name:
+                            matched_key = m_key
+                            break
             
             if matched_key:
                 try:
                     w = int(row[6])
                     cur = self.qty_vars[matched_key].get()
                     self.qty_vars[matched_key].set(cur + 1)
-                    # 外部ファイルの寸法を優先する場合（検証用）はここで上書き可能だが、
-                    # 今回は既存のマスタサイズを使用し、重量のみ反映させる
                     self.on_slider_change(matched_key, str(cur + 1), weight=w)
                     loaded_count += 1
                 except:
                     continue
                     
         self.append_log(f"✅ {month_str} から計 {loaded_count} 個の荷物を抽出しました。")
-        self.append_log("💡 これらを1つのコンテナにどこまで詰め込めるか検証します。")
-        self.run_simulation()
+        if loaded_count > 0:
+            self.append_log("💡 集約シミュレーションを開始します...")
+            self.run_simulation()
+        else:
+            self.append_log("⚠️ 読み込める荷物が見つかりませんでした。", "yellow")
 
     def clear_all_items(self, run_sim=True):
         for key, var in self.qty_vars.items():
