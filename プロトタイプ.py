@@ -383,14 +383,25 @@ class App:
             self.qty_vars[key] = var
             self.last_quantities[key] = 0
             
-            val_lbl = tk.Label(info_frame, textvariable=var, bg=Colors.BG_CARD, fg=Colors.ACCENT_HOT, font=("Meiryo", 12, "bold"))
-            val_lbl.pack(side=tk.RIGHT, padx=5)
+            # 操作用ボタンコンテナ
+            ctrl_frame = tk.Frame(info_frame, bg=Colors.BG_CARD)
+            ctrl_frame.pack(side=tk.RIGHT, padx=5)
             
-            # Slider (手動操作不可：読込専用)
-            scale = tk.Scale(info_frame, from_=0, to=40, orient=tk.HORIZONTAL, variable=var, 
-                             showvalue=0, bg=Colors.BG_CARD, fg="white", length=200, sliderrelief='flat',
-                             troughcolor="#111", highlightthickness=0, state='disabled')
-            scale.pack(side=tk.RIGHT, expand=False, padx=5)
+            # マイナスボタン
+            btn_minus = tk.Button(ctrl_frame, text="－", font=("Meiryo", 9, "bold"), width=2,
+                                  bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, relief="flat", cursor="hand2",
+                                  command=lambda k=key: self.on_slider_change(k, str(self.qty_vars[k].get() - 1)))
+            btn_minus.pack(side=tk.LEFT, padx=2)
+            
+            # 数量ラベル
+            val_lbl = tk.Label(ctrl_frame, textvariable=var, bg=Colors.BG_CARD, fg=Colors.ACCENT_HOT, font=("Meiryo", 12, "bold"), width=3)
+            val_lbl.pack(side=tk.LEFT, padx=5)
+            
+            # プラスボタン
+            btn_plus = tk.Button(ctrl_frame, text="＋", font=("Meiryo", 9, "bold"), width=2,
+                                 bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, relief="flat", cursor="hand2",
+                                 command=lambda k=key: self.on_slider_change(k, str(self.qty_vars[k].get() + 1), weight=data['weight']))
+            btn_plus.pack(side=tk.LEFT, padx=2)
 
         # 追加ログテキスト
         bottom_frame = tk.Frame(self.left_frame, bg="#111111", padx=20, pady=10)
@@ -433,14 +444,19 @@ class App:
         self.log_text.see(tk.END)
 
     def on_slider_change(self, key, val_str, weight=0):
-        # 外部ファイル読み込み時にのみ実行される（手動スライダーは無効化済み）
-        new_qty = int(float(val_str))
+        # 0〜40の範囲制限
+        try:
+            new_qty = max(0, min(40, int(float(val_str))))
+        except:
+            return
+            
+        self.qty_vars[key].set(new_qty) # ボタン操作時用に明示的にセット
         old_qty = self.last_quantities[key]
         
         if new_qty > old_qty:
             diff = new_qty - old_qty
             for _ in range(diff):
-                # 読み込まれた確定重量を使用
+                # 外部ファイルまたはマスタの確定重量を使用
                 w = int(weight)
                 if key not in self.weight_cache: self.weight_cache[key] = []
                 self.weight_cache[key].append(w)
