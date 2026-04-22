@@ -348,8 +348,28 @@ class App:
         self.weight_progress = ttk.Progressbar(gauge_frame, orient="horizontal", length=440, mode="determinate", style="Cyan.Horizontal.TProgressbar")
         self.weight_progress.pack(fill=tk.X, pady=(5,0))
 
-        tk.Label(self.left_frame, text="PARTS SELECTION (横にスライド)", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, 
-                 font=Fonts.BODY_BOLD).pack(anchor=tk.W, padx=20, pady=(15, 5))
+        # 年間予定選択エリア
+        yearly_frame = tk.Frame(self.left_frame, bg=Colors.BG_PANEL, padx=20, pady=10)
+        yearly_frame.pack(side=tk.TOP, fill=tk.X)
+        
+        tk.Label(yearly_frame, text="📅 年間シミュレーション設定", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, 
+                 font=Fonts.BODY_BOLD).pack(anchor=tk.W)
+        
+        sel_row = tk.Frame(yearly_frame, bg=Colors.BG_PANEL)
+        sel_row.pack(fill=tk.X, pady=5)
+        
+        tk.Label(sel_row, text="対象月:", bg=Colors.BG_PANEL, fg="white", font=Fonts.SMALL).pack(side=tk.LEFT)
+        self.month_combo = ttk.Combobox(sel_row, values=[f"{i}月" for i in range(1, 13)], width=10, state="readonly")
+        self.month_combo.set("1月")
+        self.month_combo.pack(side=tk.LEFT, padx=5)
+        self.month_combo.bind("<<ComboboxSelected>>", self.on_month_selected)
+        
+        self.btn_yearly = tk.Button(sel_row, text="年間予定表を読込", bg="#224433", fg="white",
+                                    font=("Meiryo", 8, "bold"), command=self.load_yearly_layout, cursor="hand2")
+        self.btn_yearly.pack(side=tk.LEFT, padx=5)
+
+        tk.Label(self.left_frame, text="PARTS SELECTION (読込結果)", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, 
+                 font=Fonts.BODY_BOLD).pack(anchor=tk.W, padx=20, pady=(5, 5))
 
         # スクロールエリア
         canvas_frame = tk.Frame(self.left_frame, bg=Colors.BG_PANEL, padx=20)
@@ -470,7 +490,6 @@ class App:
                     self.append_log(f"❌ {PARTS_MASTER[key]['name']} をリスト削除 (-{w:,}kg)")
                     
         self.last_quantities[key] = new_qty
-        # スライダー変更時はシミュレーションを走らせない
 
     def load_manifest_file(self):
         file_path = filedialog.askopenfilename(
@@ -491,7 +510,6 @@ class App:
             messagebox.showerror("エラー", f"ファイルの読み込みに失敗しました:\n{e}")
             return
             
-        # 1行1ケース（名称・重量）の形式を優先してパース
         weight_col = next((col for col in df.columns if "重量" in str(col) or "重さ" in str(col) or "Weight" in str(col)), None)
         if not weight_col:
             messagebox.showerror("エラー", "ファイル内に「重量」列が見つかりません。今回の仕様では各ケースの重量指定が必須です。")
@@ -512,7 +530,6 @@ class App:
         loaded_count = 0
         unknown_parts = []
         
-        # 数量列がある場合はその回数分ループ、ない場合は1行1個として処理
         qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col) or "数" in str(col)), None)
 
         for _, row in df.iterrows():
@@ -548,6 +565,75 @@ class App:
         self.append_log(f"✅ 合計 {loaded_count} 個のケース（実重量）を読み込みました！", "green")
         self.run_simulation()
 
+    def load_yearly_layout(self):
+        file_path = "vanning_layout_2026.xlsx"
+        if not os.path.exists(file_path):
+            messagebox.showerror("エラー", f"'{file_path}' が見つかりません。")
+            return
+        
+        self.yearly_xl = pd.ExcelFile(file_path)
+        self.append_log(f"📅 年間予定表 '{file_path}' を読み込みました。")
+        self.on_month_selected(None)
+
+    def on_month_selected(self, event):
+        if not hasattr(self, 'yearly_xl'): 
+            return
+            
+        month_str = self.month_combo.get()
+        # シート名は "1月", "2月" ... だが、ファイルによっては "1" などの可能性もあるため柔軟に対応
+        sheet_name = month_str
+        if sheet_name not in self.yearly_xl.sheet_names:
+            # 代替案として数字のみを試す
+            sheet_name = month_str.replace("月", "")
+            if sheet_name not in self.yearly_xl.sheet_names:
+                messagebox.showerror("エラー", f"シート '{month_str}' が見つかりません。")
+                return
+        
+        df = pd.read_excel(self.yearly_xl, sheet_name=sheet_name, header=None)
+        
+        self.clear_all_items(run_sim=False)
+        self.append_log(f"🔍 {month_str} の全コンテナからデータを抽出中...")
+        
+        # vanning_layout_2026.xlsx 特有のフォーマット解析
+        # ヘッダー行: 「種別, ID, 名称, L, W, H, 重量(kg)」 を探す
+        loaded_count = 0
+        name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
+        
+        for i, row in df.iterrows():
+            # 無視する行（空行やタイトル行）
+            if pd.isna(row[0]) or "Container" in str(row[0]) or "種別" in str(row[0]):
+                continue
+            
+            part_name = str(row[2]).strip()
+            clean_name = part_name.replace(" ", "").replace("　","")
+            
+            # マスタに存在するかチェック
+            matched_key = None
+            if clean_name in name_to_key:
+                matched_key = name_to_key[clean_name]
+            else:
+                # 名称が一部含まれているか（IPPC A -> IPPC燻蒸A など）の曖昧一致
+                for m_name, m_key in name_to_key.items():
+                    if clean_name in m_name or m_name in clean_name:
+                        matched_key = m_key
+                        break
+            
+            if matched_key:
+                try:
+                    w = int(row[6])
+                    cur = self.qty_vars[matched_key].get()
+                    self.qty_vars[matched_key].set(cur + 1)
+                    # 外部ファイルの寸法を優先する場合（検証用）はここで上書き可能だが、
+                    # 今回は既存のマスタサイズを使用し、重量のみ反映させる
+                    self.on_slider_change(matched_key, str(cur + 1), weight=w)
+                    loaded_count += 1
+                except:
+                    continue
+                    
+        self.append_log(f"✅ {month_str} から計 {loaded_count} 個の荷物を抽出しました。")
+        self.append_log("💡 これらを1つのコンテナにどこまで詰め込めるか検証します。")
+        self.run_simulation()
+
     def clear_all_items(self, run_sim=True):
         for key, var in self.qty_vars.items():
             var.set(0)
@@ -574,13 +660,19 @@ class App:
         cog, devs = self.container.get_cog_stats()
 
         # Update gauge
-        tot = self.container.total_weight
-        mx = self.container.max_weight
-        pct = (tot / mx) * 100
-        self.lbl_weight.config(text=f"総重量: {tot:,} / {mx:,} kg ({pct:.1f}%)")
-        self.weight_progress['value'] = pct
+        tot_w = self.container.total_weight
+        mx_w = self.container.max_weight
+        pct_w = (tot_w / mx_w) * 100
         
-        if pct > 100: self.lbl_weight.config(fg=Colors.ERROR)
+        # [NEW] 容積充填率の計算
+        tot_v = sum(item.w * item.d * item.h for item in self.container.items)
+        mx_v = self.container.w * self.container.d * self.container.h
+        pct_v = (tot_v / mx_v) * 100
+        
+        self.lbl_weight.config(text=f"重量: {tot_w:,}/{mx_w:,}kg ({pct_w:.1f}%) | 容積: {pct_v:.1f}%")
+        self.weight_progress['value'] = pct_w
+        
+        if pct_w > 100: self.lbl_weight.config(fg=Colors.ERROR)
         else: self.lbl_weight.config(fg="white")
 
         self.draw_3d_graph(cog, devs)
