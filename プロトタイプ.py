@@ -101,7 +101,7 @@ class Item:
 class Container:
     def __init__(self):
         self.w, self.d, self.h = 12000, 2300, 2400
-        self.max_weight = 26500
+        self.max_weight = 15000
         self.door_w, self.door_h = 2300, 2400
         self.items = []
         self.unloaded_items = []
