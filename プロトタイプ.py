@@ -375,8 +375,8 @@ class App:
             info_frame = tk.Frame(row_frame, bg=Colors.BG_CARD); info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             tk.Label(info_frame, text=data['name'], bg=Colors.BG_CARD, fg="white", font=("Meiryo", 10, "bold"), anchor="w").pack(fill=tk.X)
             
-            # [NEW] 寸法と重量案内の追加表示
-            dim_text = f"サイズ: L{data['w']} x W{data['d']} x H{data['h']} / 重量: 変動(1000~15000kg)"
+            # [NEW] 寸法情報の追加表示（重量は外部ファイル依存）
+            dim_text = f"サイズ: L{data['w']} x W{data['d']} x H{data['h']} / 重量: 外部ファイル参照"
             tk.Label(info_frame, text=dim_text, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=("Meiryo", 8), anchor="w").pack(fill=tk.X)
             
             var = tk.IntVar(value=0)
@@ -386,10 +386,10 @@ class App:
             val_lbl = tk.Label(info_frame, textvariable=var, bg=Colors.BG_CARD, fg=Colors.ACCENT_HOT, font=("Meiryo", 12, "bold"))
             val_lbl.pack(side=tk.RIGHT, padx=5)
             
-            # Slider
+            # Slider (手動操作不可：読込専用)
             scale = tk.Scale(info_frame, from_=0, to=40, orient=tk.HORIZONTAL, variable=var, 
                              showvalue=0, bg=Colors.BG_CARD, fg="white", length=200, sliderrelief='flat',
-                             troughcolor="#111", highlightthickness=0, command=lambda v, k=key: self.on_slider_change(k, v))
+                             troughcolor="#111", highlightthickness=0, state='disabled')
             scale.pack(side=tk.RIGHT, expand=False, padx=5)
 
         # 追加ログテキスト
@@ -402,11 +402,7 @@ class App:
 
         btn_csv = tk.Button(bottom_frame, text="📁 マニフェスト読込 (CSV/Excel)", bg="#334466", fg="white",
                               font=("Meiryo", 10, "bold"), command=self.load_manifest_file, cursor="hand2")
-        btn_csv.pack(fill=tk.X, pady=(0, 5))
-
-        btn_random = tk.Button(bottom_frame, text="🎲 本日のマニフェストを仮作成", bg=Colors.BG_CARD, fg=Colors.ACCENT_MAIN,
-                              font=("Meiryo", 10, "bold"), command=self.generate_random_manifest, cursor="hand2")
-        btn_random.pack(fill=tk.X, pady=(0, 10))
+        btn_csv.pack(fill=tk.X, pady=(0, 10))
 
         tk.Label(bottom_frame, text="OPERATION HISTORY", bg="#111111", fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
         self.log_text = st.ScrolledText(bottom_frame, width=30, height=5, font=("MS Gothic", 9), 
@@ -436,15 +432,16 @@ class App:
         self.log_text.insert(tk.END, text + "\n")
         self.log_text.see(tk.END)
 
-    def on_slider_change(self, key, val_str):
-        # Cache random weight logic 
+    def on_slider_change(self, key, val_str, weight=0):
+        # 外部ファイル読み込み時にのみ実行される（手動スライダーは無効化済み）
         new_qty = int(float(val_str))
         old_qty = self.last_quantities[key]
         
         if new_qty > old_qty:
             diff = new_qty - old_qty
             for _ in range(diff):
-                w = random.randint(1000, 15000)
+                # 読み込まれた確定重量を使用
+                w = int(weight)
                 if key not in self.weight_cache: self.weight_cache[key] = []
                 self.weight_cache[key].append(w)
                 self.append_log(f"📝 {PARTS_MASTER[key]['name']} をリスト追加 ({w:,}kg)")
@@ -458,27 +455,6 @@ class App:
                     
         self.last_quantities[key] = new_qty
         # スライダー変更時はシミュレーションを走らせない
-
-    def generate_random_manifest(self):
-        self.clear_all_items(run_sim=False)
-        total_items = random.randint(8, 40)
-        self.append_log(f"🤖 本日のマニフェスト（合計{total_items}ケース）を自動生成しました！", "white")
-        keys = list(PARTS_MASTER.keys())
-        for _ in range(total_items):
-            k = random.choice(keys)
-            cur = self.qty_vars[k].get()
-            self.qty_vars[k].set(cur + 1)
-            self.on_slider_change(k, str(cur + 1))
-        # マニフェスト作成時点では自動でバンニングを実行しない
-
-    def clear_all_items(self, run_sim=True):
-        for key, var in self.qty_vars.items():
-            var.set(0)
-            self.last_quantities[key] = 0
-            self.weight_cache[key] = []
-        self.append_log("🔄 リストをクリアしました", "yellow")
-        if run_sim:
-            self.run_simulation()
 
     def load_manifest_file(self):
         file_path = filedialog.askopenfilename(
@@ -499,14 +475,14 @@ class App:
             messagebox.showerror("エラー", f"ファイルの読み込みに失敗しました:\n{e}")
             return
             
-        qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col) or "数" in str(col)), None)
-        if not qty_col:
-            messagebox.showerror("エラー", "ファイル内に「数量」または「個数」という名前の列が見つかりません。")
+        # 1行1ケース（名称・重量）の形式を優先してパース
+        weight_col = next((col for col in df.columns if "重量" in str(col) or "重さ" in str(col) or "Weight" in str(col)), None)
+        if not weight_col:
+            messagebox.showerror("エラー", "ファイル内に「重量」列が見つかりません。今回の仕様では各ケースの重量指定が必須です。")
             return
             
         name_col = next((col for col in df.columns if "名称" in str(col) or "名前" in str(col) or "品名" in str(col) or "資材" in str(col) or "Name" in str(col)), None)
         if not name_col:
-            # Fallback
             name_col = next((col for col in df.columns if df[col].dtype == object), None)
             
         if not name_col:
@@ -514,38 +490,56 @@ class App:
             return
             
         self.clear_all_items(run_sim=False)
-        self.append_log(f"📁 ファイルからマニフェストを読み込んでいます...")
+        self.append_log(f"📁 ファイルからマニフェスト（重量確定済み）を読み込んでいます...")
         
         name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
         loaded_count = 0
         unknown_parts = []
         
+        # 数量列がある場合はその回数分ループ、ない場合は1行1個として処理
+        qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col) or "数" in str(col)), None)
+
         for _, row in df.iterrows():
-            qty_val = row[qty_col]
-            if pd.isna(qty_val): continue
-            try:
-                qty = int(qty_val)
-            except:
-                continue
-            if qty <= 0: continue
-            
             part_name = str(row[name_col]).strip()
             clean_name = part_name.replace(" ", "").replace("　","")
             
             if clean_name in name_to_key:
                 matched_key = name_to_key[clean_name]
-                cur = self.qty_vars[matched_key].get()
-                self.qty_vars[matched_key].set(cur + qty)
-                self.on_slider_change(matched_key, str(cur + qty))
-                loaded_count += qty
+                w = 0
+                try:
+                    w = int(row[weight_col])
+                except:
+                    continue
+                
+                qty = 1
+                if qty_col and not pd.isna(row[qty_col]):
+                    try:
+                        qty = int(row[qty_col])
+                    except:
+                        qty = 1
+                
+                for _ in range(qty):
+                    cur = self.qty_vars[matched_key].get()
+                    self.qty_vars[matched_key].set(cur + 1)
+                    self.on_slider_change(matched_key, str(cur + 1), weight=w)
+                    loaded_count += 1
             else:
                 unknown_parts.append(part_name)
                 
         if unknown_parts:
             self.append_log(f"⚠️ マスタにない部品を無視しました: {', '.join(set(unknown_parts))}", "yellow")
             
-        self.append_log(f"✅ 合計 {loaded_count} 個のケースをセットしました！", "green")
+        self.append_log(f"✅ 合計 {loaded_count} 個のケース（実重量）を読み込みました！", "green")
         self.run_simulation()
+
+    def clear_all_items(self, run_sim=True):
+        for key, var in self.qty_vars.items():
+            var.set(0)
+            self.last_quantities[key] = 0
+            self.weight_cache[key] = []
+        self.append_log("🔄 リストをクリアしました", "yellow")
+        if run_sim:
+            self.run_simulation()
 
     def run_simulation(self):
         items_to_load = []
