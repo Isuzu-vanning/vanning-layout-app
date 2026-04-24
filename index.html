@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vanning Layout Simulator</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Controls -->
+        <aside class="sidebar">
+            <h1>Vanning Simulator</h1>
+            
+            <div class="control-group">
+                <h3>シミュレーション設定</h3>
+                <label>最大積載重量 (kg)</label>
+                <input type="number" id="max-weight" value="26000" disabled>
+                
+                <label>目標積載率 (%)</label>
+                <div class="range-inputs">
+                    <input type="number" id="target-min" value="70">
+                    <span>〜</span>
+                    <input type="number" id="target-max" value="85">
+                </div>
+
+                <label>箱の重量範囲 (kg)</label>
+                <div class="range-inputs">
+                    <input type="number" id="weight-min" value="1000">
+                    <span>〜</span>
+                    <input type="number" id="weight-max" value="15000">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <button id="btn-simulate" class="primary-btn">シミュレーション実行</button>
+                <button id="btn-next-month" class="secondary-btn" disabled>翌月へ進む</button>
+            </div>
+
+            <div class="stats-panel">
+                <h3>積載結果</h3>
+                <div class="stat-item">
+                    <span>現在の月</span>
+                    <strong id="stat-month">-</strong>
+                </div>
+                <div class="stat-item">
+                    <span>積載された箱数</span>
+                    <strong id="stat-boxes">0</strong>
+                </div>
+                <div class="stat-item">
+                    <span>総重量 (kg)</span>
+                    <strong id="stat-weight">0</strong>
+                </div>
+                <div class="stat-item">
+                    <span>重量積載率</span>
+                    <strong id="stat-weight-pct">0%</strong>
+                </div>
+                <div class="stat-item">
+                    <span>残りの待機箱数</span>
+                    <strong id="stat-pending">0</strong>
+                </div>
+            </div>
+
+            <button id="btn-download" class="download-btn" disabled>CSVダウンロード</button>
+        </aside>
+
+        <!-- Main Visualization -->
+        <main class="visualization-area">
+            <div class="view-controls">
+                <button class="view-btn active" data-view="3d">3D View</button>
+                <button class="view-btn" data-view="top">Top View</button>
+                <button class="view-btn" data-view="side">Side View</button>
+            </div>
+            <div id="canvas-container"></div>
+            
+            <!-- Contextual Tooltip -->
+            <div id="tooltip" class="tooltip hidden"></div>
+        </main>
+        
+        <!-- Right Sidebar for Box List -->
+        <aside class="right-sidebar">
+            <div class="list-header">
+                <h3>積載ケース一覧</h3>
+                <span id="list-count" class="badge">0</span>
+            </div>
+            <div class="table-container">
+                <table id="loaded-boxes-table">
+                    <thead>
+                        <tr>
+                            <th>月</th>
+                            <th>ID</th>
+                            <th>寸法(mm)</th>
+                            <th>重量(kg)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+        </aside>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
