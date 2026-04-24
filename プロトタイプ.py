@@ -339,9 +339,9 @@ class App:
         self.root.configure(bg=Colors.BG_MAIN)
         
         # 状態管理
-        self.current_view = "YEAR" # YEAR, MONTH, WEEK
         self.selected_month = None
         self.selected_week = None
+        self.current_view = "YEAR" # YEAR, MONTH_LIST, MONTH_DETAIL, WEEK
         
         self.container = None
         self.fig = None
@@ -361,6 +361,9 @@ class App:
         self.content_frame = tk.Frame(self.main_container, bg=Colors.BG_MAIN)
         self.content_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=30)
 
+        # 内部ログ保持用 (UIには出さないがエラー防止のため)
+        self.log_text = tk.Text(root) 
+
         # データの初期化
         self.generate_random_annual_data()
         self.render_view()
@@ -373,12 +376,13 @@ class App:
                      "activeforeground": "white", "relief": "flat", "font": ("Meiryo", 10, "bold"), "pady": 15}
         
         tk.Button(self.sidebar, text="年次", command=self.go_to_year, **btn_style).pack(fill=tk.X)
+        tk.Button(self.sidebar, text="月次", command=self.go_to_month_list, **btn_style).pack(fill=tk.X)
         tk.Button(self.sidebar, text="読込", command=self.load_manifest_file, **btn_style).pack(fill=tk.X)
         
         spacer = tk.Frame(self.sidebar, bg=Colors.BG_PANEL)
         spacer.pack(fill=tk.BOTH, expand=True)
         
-        tk.Button(self.sidebar, text="設定", **btn_style).pack(fill=tk.X)
+        tk.Button(self.sidebar, text="設定", command=self.show_settings, **btn_style).pack(fill=tk.X)
 
     def clear_content(self):
         for widget in self.content_frame.winfo_children():
@@ -388,17 +392,25 @@ class App:
         self.clear_content()
         if self.current_view == "YEAR":
             self.render_annual_dashboard()
-        elif self.current_view == "MONTH":
+        elif self.current_view == "MONTH_LIST":
+            self.render_month_selector()
+        elif self.current_view == "MONTH_DETAIL":
             self.render_monthly_grid()
         elif self.current_view == "WEEK":
             self.render_weekly_detail()
+        elif self.current_view == "SETTINGS":
+            self.render_settings_view()
+
+    def go_to_month_list(self):
+        self.current_view = "MONTH_LIST"
+        self.render_view()
 
     def go_to_year(self):
         self.current_view = "YEAR"
         self.render_view()
 
     def go_to_month(self, month):
-        self.current_view = "MONTH"
+        self.current_view = "MONTH_DETAIL"
         self.selected_month = month
         self.render_view()
 
@@ -406,6 +418,39 @@ class App:
         self.current_view = "WEEK"
         self.selected_week = week
         self.render_view()
+
+    def show_settings(self):
+        """設定画面の表示"""
+        self.current_view = "SETTINGS"
+        self.render_view()
+
+    def render_settings_view(self):
+        """設定画面のUI描画"""
+        header = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        header.pack(fill=tk.X, pady=(0, 20))
+        tk.Label(header, text="システム設定・情報", bg=Colors.BG_MAIN, fg="white", font=("Meiryo", 20, "bold")).pack(side=tk.LEFT)
+
+        card = tk.Frame(self.content_frame, bg=Colors.BG_CARD, padx=25, pady=25, highlightthickness=1, highlightbackground=Colors.BG_PANEL)
+        card.pack(fill=tk.X)
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        target_file = os.path.join(base_dir, "vanning_layout_2026.xlsx")
+        is_loaded = os.path.exists(target_file)
+
+        rows = [
+            ("アプリケーション", "Vanning Optimizer v6.0 [Professional]"),
+            ("開発者", "Stella Logistics System Team"),
+            ("オートロード対象", target_file),
+            ("現在の読込状態", "✅ 接続済み (実データ参照中)" if is_loaded else "⚠️ 未接続 (デモデータ動作中)"),
+            ("重心計算モード", "高精度 (3D物理演算有効)"),
+            ("最強モード", "有効 (全数パズル最適化)")
+        ]
+
+        for label, val in rows:
+            f = tk.Frame(card, bg=Colors.BG_CARD, pady=8)
+            f.pack(fill=tk.X)
+            tk.Label(f, text=label, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL_BOLD, width=20, anchor="w").pack(side=tk.LEFT)
+            tk.Label(f, text=val, bg=Colors.BG_CARD, fg="white", font=Fonts.SMALL).pack(side=tk.LEFT)
 
     def render_annual_dashboard(self):
         header = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
@@ -423,10 +468,19 @@ class App:
 
         # [NEW] 年間推移グラフ
         chart_frame = tk.Frame(self.content_frame, bg=Colors.BG_CARD, padx=15, pady=15)
-        chart_frame.pack(fill=tk.X, pady=(0, 30))
+        chart_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         self._render_trend_chart(chart_frame, stats)
 
-        # タイルグリッド
+        # タイルグリッド（年次からは削除し、別のメソッドへ移動）
+        pass
+
+    def render_month_selector(self):
+        """12ヶ月のカードを並べた月選択画面"""
+        header = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        header.pack(fill=tk.X, pady=(0, 20))
+        tk.Label(header, text="月次シミュレーション選択", bg=Colors.BG_MAIN, fg="white", font=("Meiryo", 20, "bold")).pack(side=tk.LEFT)
+
+        stats = self.calculate_annual_stats()
         grid_frame = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
         grid_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -437,13 +491,16 @@ class App:
             
             card = tk.Frame(grid_frame, bg=Colors.BG_CARD, highlightthickness=1, highlightbackground=Colors.BG_PANEL, padx=15, pady=15, cursor="hand2")
             card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+            card.bind("<Button-1>", lambda e, m=month_idx: self.go_to_month(m))
             grid_frame.grid_columnconfigure(col, weight=1)
             
-            tk.Label(card, text=f"{month_idx}月", bg=Colors.BG_CARD, fg=Colors.ACCENT_MAIN, font=Fonts.HEADER).pack(anchor="w")
+            lbl = tk.Label(card, text=f"{month_idx}月", bg=Colors.BG_CARD, fg=Colors.ACCENT_MAIN, font=Fonts.HEADER)
+            lbl.pack(anchor="w")
+            lbl.bind("<Button-1>", lambda e, m=month_idx: self.go_to_month(m))
+            
             tk.Label(card, text=f"輸送量: {m_stats['items_count']}荷物", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
             tk.Label(card, text=f"本数: {m_stats['before']} → {m_stats['after']}本", bg=Colors.BG_CARD, fg="white", font=Fonts.BODY_BOLD).pack(anchor="w", pady=5)
             
-            # 進捗バー
             bar_bg = tk.Frame(card, bg="#222222", height=4)
             bar_bg.pack(fill=tk.X, pady=(5,0))
             if m_stats['before'] > 0:
