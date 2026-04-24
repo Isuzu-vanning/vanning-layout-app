@@ -12,6 +12,7 @@ import random
 from collections import Counter
 import pandas as pd
 import ast
+import re
 
 # --- 1. フォント設定・カラーパレット ---
 def get_jp_font_family():
@@ -538,24 +539,43 @@ class App:
         
         qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col) or "数" in str(col)), None)
 
-        for _, row in df.iterrows():
-            part_name = str(row[name_col]).strip()
-            clean_name = part_name.replace(" ", "").replace("　","")
+        for i, row in df.iterrows():
+            # [FIX] 空行やヘッダー行（Container...）をスキップ
+            cell_0 = str(row[0]).strip()
+            if not cell_0 or cell_0 == "nan" or "Container" in cell_0 or "種別" in cell_0 or "日付" in cell_0:
+                continue
+
+            matched_key = None
             
-            if clean_name in name_to_key:
-                matched_key = name_to_key[clean_name]
+            # [FIX] ID（2列目）による紐付けを優先
+            try:
+                raw_id = int(row[1])
+                test_key = f"CASE_{raw_id:02d}"
+                if test_key in PARTS_MASTER:
+                    matched_key = test_key
+            except:
+                pass
+            
+            # IDで見つからない場合は名称で検索
+            if not matched_key:
+                part_name = str(row[name_col]).strip()
+                clean_name = part_name.replace(" ", "").replace("　","")
+                if clean_name in name_to_key:
+                    matched_key = name_to_key[clean_name]
+            
+            if matched_key:
                 w = 0
                 try:
-                    w = int(row[weight_col])
+                    # 重量列（インデックス6または名前一致）
+                    if isinstance(weight_col, int): w = int(row[weight_col])
+                    else: w = int(row[weight_col])
                 except:
-                    continue
+                    w = PARTS_MASTER[matched_key]['weight'] # fallback
                 
                 qty = 1
-                if qty_col and not pd.isna(row[qty_col]):
-                    try:
-                        qty = int(row[qty_col])
-                    except:
-                        qty = 1
+                if qty_col is not None and not pd.isna(row[qty_col]):
+                    try: qty = int(row[qty_col])
+                    except: qty = 1
                 
                 for _ in range(qty):
                     cur = self.qty_vars[matched_key].get()
@@ -563,10 +583,14 @@ class App:
                     self.on_slider_change(matched_key, str(cur + 1), weight=w)
                     loaded_count += 1
             else:
-                unknown_parts.append(part_name)
+                if cell_0 and cell_0 != "nan" and len(cell_0) > 1:
+                    unknown_parts.append(cell_0)
                 
         if unknown_parts:
-            self.append_log(f"⚠️ マスタにない部品を無視しました: {', '.join(set(unknown_parts))}", "yellow")
+            # 重複を排除して表示
+            unique_unknown = [p for p in set(unknown_parts) if "Container" not in p and "2026/" not in p]
+            if unique_unknown:
+                self.append_log(f"⚠️ マスタにない部品を無視しました: {', '.join(unique_unknown)}", "yellow")
             
         self.append_log(f"✅ 合計 {loaded_count} 個のケース（実重量）を読み込みました！", "green")
         self.run_simulation()
@@ -829,6 +853,29 @@ class App:
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+        # [NEW] 週次サマリーテーブル
+        table_frame = tk.Frame(content_frame, bg=Colors.BG_CARD, padx=10, pady=10)
+        table_frame.pack(fill=tk.BOTH, expand=True, pady=(20, 0))
+        
+        tk.Label(table_frame, text="📅 週次最適化サマリー (抜粋)", bg=Colors.BG_CARD, fg="white", font=Fonts.BODY_BOLD).pack(anchor=tk.W)
+        
+        # ツリービューの作成
+        style = ttk.Style()
+        style.configure("Custom.Treeview", background=Colors.BG_CARD, foreground="white", fieldbackground=Colors.BG_CARD, borderwidth=0)
+        style.map("Custom.Treeview", background=[('selected', Colors.ACCENT_MAIN)], foreground=[('selected', 'black')])
+        
+        tree = ttk.Treeview(table_frame, columns=("Week", "Before", "After", "Saved"), show="headings", style="Custom.Treeview", height=6)
+        tree.heading("Week", text="週番号")
+        tree.heading("Before", text="現状 (本)")
+        tree.heading("After", text="最適化後 (本)")
+        tree.heading("Saved", text="削減数")
+        
+        for i in range(len(weeks)):
+            if before[i] > 0:
+                tree.insert("", tk.END, values=(f"Week {weeks[i]}", f"{before[i]}本", f"{after[i]}本", f"{before[i]-after[i]}本"))
+        
+        tree.pack(fill=tk.BOTH, expand=True)
+
         # 解説エリア
         info_text = (
             "【システムによる最適化の仕組み】\n"
@@ -843,18 +890,61 @@ class App:
         """ランダムな1年分のデータを生成"""
         if self.annual_data is not None: return
         
-        data = []
+        # 実際のファイルがあるか確認
+        actual = self.load_actual_annual_data()
+        if actual:
+            self.annual_data = actual
+            return
+
+        data = {}
         part_keys = list(PARTS_MASTER.keys())
-        for week in range(1, 53):
-            # 毎週 150〜300個程度の荷物を生成
+        for week in range(1, 54):
             num_items = random.randint(150, 300)
             weekly_cargo = []
             for _ in range(num_items):
                 key = random.choice(part_keys)
                 weight = random.randint(500, 2500)
                 weekly_cargo.append({'key': key, 'weight': weight})
-            data.append(weekly_cargo)
+            data[week] = {'items': weekly_cargo, 'containers_before': int(num_items/15)}
         self.annual_data = data
+
+    def load_actual_annual_data(self):
+        """vanning_layout_2026.xlsxから実際の予定データを読み込む"""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(base_dir, "vanning_layout_2026.xlsx")
+        
+        if not os.path.exists(file_path): return None
+            
+        try:
+            xl = pd.ExcelFile(file_path)
+            weekly_data = {i: {'items': [], 'containers_before': 0} for i in range(1, 55)}
+            container_pattern = re.compile(r'(\d{4}/\d{2}/\d{2})\s+Container-(\d+)')
+            
+            for sheet_name in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
+                current_week = None
+                for _, row in df.iterrows():
+                    cell_0 = str(row[0])
+                    match = container_pattern.search(cell_0)
+                    if match:
+                        date_str = match.group(1)
+                        date_dt = pd.to_datetime(date_str)
+                        current_week = date_dt.isocalendar()[1]
+                        weekly_data[current_week]['containers_before'] += 1
+                    elif current_week is not None:
+                        try:
+                            raw_id = int(row[1])
+                            test_key = f"CASE_{raw_id:02d}"
+                            if test_key in PARTS_MASTER:
+                                weekly_data[current_week]['items'].append({
+                                    'key': test_key,
+                                    'weight': int(row[6]) if not pd.isna(row[6]) else 1000
+                                })
+                        except: continue
+            return weekly_data
+        except Exception as e:
+            print(f"Error loading actual data: {e}")
+            return None
 
     def calculate_annual_stats(self):
         """年間データの統計を計算（簡易シミュレーション）"""
@@ -866,23 +956,29 @@ class App:
             'efficiency_gain': 0
         }
         
-        # コンテナ1本の標準容積 (mm^3)
         container_vol = 12000 * 2300 * 2400
         
-        for weekly_cargo in self.annual_data:
+        for w in range(1, 53):
+            data = self.annual_data.get(w, {'items': [], 'containers_before': 0})
+            items = data['items']
+            num_before = data['containers_before']
+            
+            if not items:
+                stats['weekly_before'].append(0)
+                stats['weekly_after'].append(0)
+                continue
+
             total_vol = 0
-            for item in weekly_cargo:
+            for item in items:
                 m = PARTS_MASTER[item['key']]
                 total_vol += m['w'] * m['d'] * m['h']
             
-            # 現状: 55-85% (平均70%) の充填率で分散
-            inefficiency_factor = random.uniform(0.6, 0.8)
-            num_before = int(np.ceil(total_vol / (container_vol * inefficiency_factor)))
             # 最適化: 95% 程度の充填率で集約
             num_after = int(np.ceil(total_vol / (container_vol * 0.95)))
             
-            # 実運用ではパズル的に入らないこともあるので、少しバッファ
-            if num_after >= num_before: num_after = max(1, num_before - 1)
+            # 実際のコンテナ数より多くなることはないので制限
+            if num_after >= num_before and num_before > 0:
+                num_after = max(1, num_before - 1)
             
             stats['weekly_before'].append(num_before)
             stats['weekly_after'].append(num_after)
@@ -890,9 +986,8 @@ class App:
         total_before = sum(stats['weekly_before'])
         total_after = sum(stats['weekly_after'])
         stats['saved_containers'] = total_before - total_after
-        # 1コンテナあたり35万円の削減と仮定（輸送費＋作業費）
         stats['cost_savings'] = stats['saved_containers'] * 350000 
-        stats['efficiency_gain'] = (1/0.7 - 1/0.95) * 100 * 0.5 # 概算
+        stats['efficiency_gain'] = (1/0.7 - 1/0.95) * 100 * 0.5 
         
         return stats
 
