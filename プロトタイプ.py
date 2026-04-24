@@ -466,13 +466,27 @@ class App:
         self.create_metric_card_small(summary_frame, "推定削減額", f"¥{stats['cost_savings']/10000:,.0f}万円", Colors.ACCENT_MAIN, subtitle=f"削減率: {stats['reduction_rate']:.1f}%")
         self.create_metric_card_small(summary_frame, "平均充填率", f"{stats['efficiency_after']:.1f}%", Colors.WARNING, subtitle=f"現状: {stats['efficiency_before']:.1f}%")
 
-        # [NEW] 年間推移グラフ
-        chart_frame = tk.Frame(self.content_frame, bg=Colors.BG_CARD, padx=15, pady=15)
-        chart_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        self._render_trend_chart(chart_frame, stats)
-
-        # タイルグリッド（年次からは削除し、別のメソッドへ移動）
-        pass
+        # [NEW] ドリルダウングラフエリア（上下2段）
+        graph_area = tk.Frame(self.content_frame, bg=Colors.BG_CARD, padx=15, pady=15)
+        graph_area.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        self.top_chart_frame = tk.Frame(graph_area, bg=Colors.BG_CARD)
+        self.top_chart_frame.pack(fill=tk.X)
+        
+        # 月選択ボタンエリア
+        btn_area = tk.Frame(graph_area, bg=Colors.BG_CARD)
+        btn_area.pack(fill=tk.X, pady=10)
+        tk.Label(btn_area, text="▼ 詳細を表示する月を選択：", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.bottom_chart_frame = tk.Frame(graph_area, bg=Colors.BG_CARD)
+        self.bottom_chart_frame.pack(fill=tk.X)
+        
+        for m in range(1, 13):
+            tk.Button(btn_area, text=f"{m}月", bg=Colors.BG_PANEL, fg="white", font=Fonts.SMALL_BOLD, relief="flat",
+                      command=lambda month=m: self._update_dashboard_bottom_chart(stats, month)).pack(side=tk.LEFT, padx=3)
+                      
+        self._render_monthly_trend_chart(self.top_chart_frame, stats)
+        self._update_dashboard_bottom_chart(stats, 1) # 初期表示は1月
 
     def render_month_selector(self):
         """12ヶ月のカードを並べた月選択画面"""
@@ -511,24 +525,59 @@ class App:
             for child in card.winfo_children():
                 child.bind("<Button-1>", lambda e, m=month_idx: self.go_to_month(m))
 
-    def _render_trend_chart(self, parent, stats):
-        fig, ax = plt.subplots(figsize=(12, 3), dpi=100)
+    def _render_monthly_trend_chart(self, parent, stats):
+        for w in parent.winfo_children(): w.destroy()
+        fig, ax = plt.subplots(figsize=(12, 2.5), dpi=100)
         fig.patch.set_facecolor(Colors.BG_CARD)
         ax.set_facecolor(Colors.BG_CARD)
         
-        weeks = np.array(range(1, 53))
+        months = np.array(range(1, 13))
+        m_before = []
+        m_after = []
+        for m in months:
+            ms = self._get_month_stats(m, stats)
+            m_before.append(ms['before'])
+            m_after.append(ms['after'])
+            
         width = 0.35
+        ax.bar(months - width/2, m_before, width, color=Colors.TEXT_DIM, alpha=0.5, label="現状")
+        ax.bar(months + width/2, m_after, width, color=Colors.ACCENT_MAIN, alpha=0.9, label="最適化")
         
-        # [FIX] 棒グラフを並べて表示するように調整
-        ax.bar(weeks - width/2, stats['weekly_before'], width, color=Colors.TEXT_DIM, alpha=0.5, label="現状")
-        ax.bar(weeks + width/2, stats['weekly_after'], width, color=Colors.ACCENT_MAIN, alpha=0.9, label="最適化")
-        
-        ax.set_title("週次コンテナ本数の推移 (Before vs After)", color="white", fontsize=10)
+        ax.set_title("月次コンテナ本数の推移サマリー (1〜12月)", color="white", fontsize=10)
+        ax.set_xticks(months)
+        ax.set_xticklabels([f"{m}月" for m in months])
         ax.tick_params(colors=Colors.TEXT_DIM, labelsize=8)
         ax.legend(facecolor=Colors.BG_CARD, edgecolor=Colors.TEXT_DIM, labelcolor="white", fontsize=8)
         ax.grid(axis='y', alpha=0.1)
         
         canvas = FigureCanvasTkAgg(fig, master=parent)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH)
+
+    def _update_dashboard_bottom_chart(self, stats, month):
+        for w in self.bottom_chart_frame.winfo_children(): w.destroy()
+        fig, ax = plt.subplots(figsize=(12, 2.2), dpi=100)
+        fig.patch.set_facecolor(Colors.BG_CARD)
+        ax.set_facecolor(Colors.BG_CARD)
+        
+        start_w = (month - 1) * 4 + 1
+        end_w = month * 4 + 1
+        weeks = np.array(range(start_w, end_w))
+        
+        w_before = stats['weekly_before'][start_w-1:end_w-1]
+        w_after = stats['weekly_after'][start_w-1:end_w-1]
+        
+        width = 0.35
+        ax.bar(weeks - width/2, w_before, width, color=Colors.TEXT_DIM, alpha=0.5, label="現状")
+        ax.bar(weeks + width/2, w_after, width, color=Colors.ACCENT_MAIN, alpha=0.9, label="最適化")
+        
+        ax.set_title(f"【{month}月】 週次コンテナ本数のズーム表示 (Week {start_w} 〜 {end_w-1})", color="white", fontsize=10)
+        ax.set_xticks(weeks)
+        ax.set_xticklabels([f"W{w}" for w in weeks])
+        ax.tick_params(colors=Colors.TEXT_DIM, labelsize=8)
+        ax.grid(axis='y', alpha=0.1)
+        
+        canvas = FigureCanvasTkAgg(fig, master=self.bottom_chart_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH)
 
@@ -661,6 +710,26 @@ class App:
 
     def _parse_manifest_dataframe(self, df):
         """DataFrameから荷物情報を抽出する共通ロジック"""
+        
+        # --- [NEW] ヘッダー行の自動探索と再設定 ---
+        # 1行目に「2026/01/08 Container-1」などのメタデータがある場合を回避
+        temp_df = df.copy()
+        temp_df.loc[-1] = temp_df.columns # 現在のヘッダーをデータ行として追加
+        temp_df.index = temp_df.index + 1
+        temp_df = temp_df.sort_index()
+        
+        header_idx = -1
+        for idx, row in temp_df.iterrows():
+            row_str = " ".join([str(val) for val in row])
+            if any(k in row_str for k in ["名称", "品名", "Name", "分類", "資材名称"]):
+                header_idx = idx
+                break
+                
+        if header_idx != -1:
+            # 見つけたヘッダー行を実際のカラムとして再設定
+            df = temp_df.iloc[header_idx+1:].reset_index(drop=True)
+            df.columns = temp_df.iloc[header_idx]
+
         name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
         items = []
         
