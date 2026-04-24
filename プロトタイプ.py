@@ -346,7 +346,8 @@ class App:
         self.container = None
         self.fig = None
         self.ax = None
-        self.weight_cache = {} 
+        self.fig = None
+        self.ax = None
         self.annual_data = None 
         
         # メインフレーム構成
@@ -596,168 +597,21 @@ class App:
         self.log_text.insert(tk.END, text + "\n")
         self.log_text.see(tk.END)
 
-    def on_slider_change(self, key, val_str, weight=0):
-        # 0〜40の範囲制限
-        try:
-            new_qty = max(0, min(40, int(float(val_str))))
-        except:
-            return
-            
-        self.qty_vars[key].set(new_qty) # ボタン操作時用に明示的にセット
-        old_qty = self.last_quantities[key]
-        
-        if new_qty > old_qty:
-            diff = new_qty - old_qty
-            for _ in range(diff):
-                # 外部ファイルまたはマスタの確定重量を使用
-                w = int(weight)
-                if key not in self.weight_cache: self.weight_cache[key] = []
-                self.weight_cache[key].append(w)
-                self.append_log(f"📝 {PARTS_MASTER[key]['name']} をリスト追加 ({w:,}kg)")
-                
-        elif new_qty < old_qty:
-            diff = old_qty - new_qty
-            for _ in range(diff):
-                if key in self.weight_cache and len(self.weight_cache[key]) > 0:
-                    w = self.weight_cache[key].pop()
-                    self.append_log(f"❌ {PARTS_MASTER[key]['name']} をリスト削除 (-{w:,}kg)")
-                    
-        self.last_quantities[key] = new_qty
+    # v6.0 ではスライダー操作は廃止されました。
 
-    def load_manifest_file(self):
-        file_path = filedialog.askopenfilename(
-            title="予定リストを選択",
-            filetypes=[("Excel & CSV files", "*.xlsx *.xls *.csv")]
-        )
-        if not file_path: return
-        
-        try:
-            if file_path.endswith('.csv'):
-                try:
-                    df = pd.read_csv(file_path, encoding='utf-8')
-                except Exception:
-                    df = pd.read_csv(file_path, encoding='shift_jis')
-            else:
-                df = pd.read_excel(file_path)
-        except Exception as e:
-            messagebox.showerror("エラー", f"ファイルの読み込みに失敗しました:\n{e}")
-            return
-            
-        weight_col = next((col for col in df.columns if "重量" in str(col) or "重さ" in str(col) or "Weight" in str(col)), None)
-        if not weight_col:
-            messagebox.showerror("エラー", "ファイル内に「重量」列が見つかりません。今回の仕様では各ケースの重量指定が必須です。")
-            return
-            
-        name_col = next((col for col in df.columns if "名称" in str(col) or "名前" in str(col) or "品名" in str(col) or "資材" in str(col) or "Name" in str(col)), None)
-        if not name_col:
-            name_col = next((col for col in df.columns if df[col].dtype == object), None)
-            
-        if not name_col:
-            messagebox.showerror("エラー", "部品名（資材名称）が記載された列が見つかりません。")
-            return
-            
-        self.clear_all_items(run_sim=False)
-        self.append_log(f"📁 ファイルからマニフェスト（重量確定済み）を読み込んでいます...")
-        
+    def _parse_manifest_dataframe(self, df):
+        """DataFrameから荷物情報を抽出する共通ロジック"""
         name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
-        loaded_count = 0
-        unknown_parts = []
+        items = []
         
-        qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col) or "数" in str(col)), None)
+        weight_col = next((col for col in df.columns if "重量" in str(col) or "Weight" in str(col)), 6)
+        name_col = next((col for col in df.columns if "名称" in str(col) or "品名" in str(col) or "Name" in str(col)), 2)
+        qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col)), None)
 
-        for i, row in df.iterrows():
-            # [FIX] 空行やヘッダー行（Container...）をスキップ
+        for _, row in df.iterrows():
             cell_0 = str(row[0]).strip()
-            if not cell_0 or cell_0 == "nan" or "Container" in cell_0 or "種別" in cell_0 or "日付" in cell_0:
-                continue
+            if not cell_0 or cell_0 == "nan" or "Container" in cell_0 or "種別" in cell_0: continue
 
-            matched_key = None
-            
-            # [FIX] ID（2列目）による紐付けを優先
-            try:
-                raw_id = int(row[1])
-                test_key = f"CASE_{raw_id:02d}"
-                if test_key in PARTS_MASTER:
-                    matched_key = test_key
-            except:
-                pass
-            
-            # IDで見つからない場合は名称で検索
-            if not matched_key:
-                part_name = str(row[name_col]).strip()
-                clean_name = part_name.replace(" ", "").replace("　","")
-                if clean_name in name_to_key:
-                    matched_key = name_to_key[clean_name]
-            
-            if matched_key:
-                w = 0
-                try:
-                    # 重量列（インデックス6または名前一致）
-                    if isinstance(weight_col, int): w = int(row[weight_col])
-                    else: w = int(row[weight_col])
-                except:
-                    w = PARTS_MASTER[matched_key]['weight'] # fallback
-                
-                qty = 1
-                if qty_col is not None and not pd.isna(row[qty_col]):
-                    try: qty = int(row[qty_col])
-                    except: qty = 1
-                
-                for _ in range(qty):
-                    cur = self.qty_vars[matched_key].get()
-                    self.qty_vars[matched_key].set(cur + 1)
-                    self.on_slider_change(matched_key, str(cur + 1), weight=w)
-                    loaded_count += 1
-            else:
-                if cell_0 and cell_0 != "nan" and len(cell_0) > 1:
-                    unknown_parts.append(cell_0)
-                
-        if unknown_parts:
-            # 重複を排除して表示
-            unique_unknown = [p for p in set(unknown_parts) if "Container" not in p and "2026/" not in p]
-            if unique_unknown:
-                self.append_log(f"⚠️ マスタにない部品を無視しました: {', '.join(unique_unknown)}", "yellow")
-            
-        self.append_log(f"✅ 合計 {loaded_count} 個のケース（実重量）を読み込みました！", "green")
-        self.run_simulation()
-
-    def load_yearly_layout(self):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        file_path = os.path.join(base_dir, "vanning_layout_2026.xlsx")
-        
-        if not os.path.exists(file_path):
-            messagebox.showerror("エラー", f"'{file_path}' が見つかりません。\nパス: {file_path}")
-            return
-        
-        self.yearly_xl = pd.ExcelFile(file_path)
-        self.append_log(f"📅 年間予定表を読み込みました。")
-        self.on_month_selected(None)
-
-    def on_month_selected(self, event):
-        if not hasattr(self, 'yearly_xl'): 
-            return
-            
-        month_str = self.month_combo.get()
-        sheet_name = month_str
-        if sheet_name not in self.yearly_xl.sheet_names:
-            sheet_name = month_str.replace("月", "")
-            if sheet_name not in self.yearly_xl.sheet_names:
-                messagebox.showerror("エラー", f"シート '{month_str}' が見つかりません。")
-                return
-        
-        df = pd.read_excel(self.yearly_xl, sheet_name=sheet_name, header=None)
-        
-        self.clear_all_items(run_sim=False)
-        self.append_log(f"🔍 {month_str} の全データを抽出中...")
-        
-        loaded_count = 0
-        name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
-        
-        items_to_load = []
-        for i, row in df.iterrows():
-            if pd.isna(row[0]) or "Container" in str(row[0]) or "種別" in str(row[0]):
-                continue
-            
             matched_key = None
             try:
                 raw_id = int(row[1])
@@ -766,37 +620,55 @@ class App:
             except: pass
             
             if not matched_key:
-                part_name = str(row[2]).strip()
-                clean_name = part_name.replace(" ", "").replace("　","")
-                if clean_name in name_to_key: matched_key = name_to_key[clean_name]
-
+                p_name = str(row[name_col]).strip().replace(" ", "").replace("　","")
+                if p_name in name_to_key: matched_key = name_to_key[p_name]
+            
             if matched_key:
-                try:
-                    w = int(row[6]) if not pd.isna(row[6]) else 1000
-                    items_to_load.append({'key': matched_key, 'weight': w, 'source_container_id': 1})
-                    loaded_count += 1
-                except: continue
-                    
-        self.append_log(f"✅ 合計 {loaded_count} 個のケース（実重量）を読み込みました！", "green")
-        
-        # 現在表示している週のデータとして反映
-        if self.current_view == "WEEK" and self.selected_week:
-            self.annual_data[self.selected_week] = {
-                'items': items_to_load,
-                'containers_before': (loaded_count // 20) + 1 
-            }
-            self.run_simulation()
-        else:
-            self.append_log("💡 週次詳細画面で読み込むと、その週のデータとして3D表示に反映されます。")
+                try: w = int(row[weight_col])
+                except: w = PARTS_MASTER[matched_key]['weight']
+                qty = 1
+                if qty_col is not None and not pd.isna(row[qty_col]):
+                    try: qty = int(row[qty_col])
+                    except: qty = 1
+                for _ in range(qty):
+                    items.append({'key': matched_key, 'weight': w, 'source_container_id': 1})
+        return items
+
+    def load_manifest_file(self):
+        """個別のマニフェストファイルを読み込む"""
+        file_path = filedialog.askopenfilename(filetypes=[("Excel & CSV files", "*.xlsx *.xls *.csv")])
+        if not file_path: return
+        try:
+            if file_path.endswith('.csv'):
+                try: df = pd.read_csv(file_path, encoding='utf-8')
+                except: df = pd.read_csv(file_path, encoding='shift_jis')
+            else: df = pd.read_excel(file_path)
+            
+            items = self._parse_manifest_dataframe(df)
+            if items:
+                if self.current_view == "WEEK" and self.selected_week:
+                    self.annual_data[self.selected_week] = {
+                        'items': items,
+                        'containers_before': (len(items) // 20) + 1 
+                    }
+                    self.run_simulation()
+                self.append_log(f"✅ {len(items)} 個の荷物を読み込みました。")
+        except Exception as e:
+            messagebox.showerror("エラー", f"読込失敗: {e}")
+
+    def on_month_selected(self, event):
+        """月次表示を更新（データは起動時にロード済み）"""
+        self.render_view()
 
     def clear_all_items(self, run_sim=True):
-        for key, var in self.qty_vars.items():
-            var.set(0)
-            self.last_quantities[key] = 0
-            self.weight_cache[key] = []
-        self.append_log("🔄 リストをクリアしました", "yellow")
-        if run_sim:
-            self.run_simulation()
+        """現在の週のデータをクリアする"""
+        if self.current_view == "WEEK" and self.selected_week:
+            self.annual_data[self.selected_week] = {'items': [], 'containers_before': 0}
+            self.append_log(f"🔄 Week {self.selected_week} のデータをクリアしました", "yellow")
+            if run_sim:
+                self.run_simulation()
+        else:
+            self.append_log("🔄 データをリセットするには週次詳細画面で実行してください。")
 
     def run_simulation(self):
         """週全体の荷物を集約して、コンテナをまたいで最適化（最強モード）"""
@@ -1201,8 +1073,6 @@ class App:
                                     'source_container_id': current_container_id
                                 }
                                 weekly_data[current_week]['items'].append(item_info)
-                                # [FIX] 個別読み込み用の一時リストにも追加
-                                items_to_load.append(item_info)
                         except: continue
             return weekly_data
         except Exception as e:
