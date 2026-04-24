@@ -41,6 +41,7 @@ class Fonts:
     BODY = ("Meiryo", 10)
     BODY_BOLD = ("Meiryo", 10, "bold")
     SMALL = ("Meiryo", 8)
+    SMALL_BOLD = ("Meiryo", 8, "bold")
     MONO = ("Consolas", 11)
     LARGE_VAL = ("Impact", 32)
 
