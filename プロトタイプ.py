@@ -300,171 +300,202 @@ class Container:
         diff_y = (cy - self.d/2) / self.d * 100
         return (cx, cy, cz), (diff_x, diff_y)
 
-# --- 5. GUIアプリ ---
+# --- 5. UIコンポーネント ---
+class Card(tk.Frame):
+    """タイル表示用のカードコンポーネント"""
+    def __init__(self, parent, title, subtitle, command=None, bg=Colors.BG_CARD, border_color=Colors.ACCENT_MAIN):
+        super().__init__(parent, bg=bg, highlightthickness=1, highlightbackground=border_color, padx=15, pady=15)
+        self.cursor = "hand2" if command else ""
+        if command:
+            self.bind("<Button-1>", lambda e: command())
+            for child in self.winfo_children():
+                child.bind("<Button-1>", lambda e: command())
+        
+        tk.Label(self, text=title, bg=bg, fg="white", font=Fonts.HEADER).pack(anchor="w")
+        tk.Label(self, text=subtitle, bg=bg, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w", pady=(5, 0))
+        self.command = command
+
+    def bind_recursive(self, widget):
+        widget.bind("<Button-1>", lambda e: self.command())
+        for child in widget.winfo_children():
+            self.bind_recursive(child)
+
+# --- 6. GUIアプリ ---
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("Vanning Optimizer v5.0 [NEO]")
-        self.root.geometry("1400x900")
+        self.root.title("Vanning Optimizer v6.0 [Professional]")
+        self.root.geometry("1400x950")
         self.root.configure(bg=Colors.BG_MAIN)
         
-        self.container = None; self.fig = None; self.ax = None
-        self.qty_vars = {}
+        # 状態管理
+        self.current_view = "YEAR" # YEAR, MONTH, WEEK
+        self.selected_month = None
+        self.selected_week = None
         
-        # [NEW] 重量の固定キャッシュ
+        self.container = None
+        self.fig = None
+        self.ax = None
         self.weight_cache = {} 
-        self.log_messages = []
-        self.last_quantities = {}
-        self.annual_data = None # Holds generated yearly data
-
-        self.left_frame = tk.Frame(root, width=480, bg=Colors.BG_PANEL)
-        self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
-        self.left_frame.pack_propagate(False)
+        self.annual_data = None 
         
-        self.right_frame = tk.Frame(root, bg=Colors.BG_MAIN)
-        self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-        
-        self.canvas_frame = tk.Frame(self.right_frame, bg=Colors.BG_MAIN)
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True)
+        # メインフレーム構成
+        self.sidebar = tk.Frame(root, width=80, bg=Colors.BG_PANEL)
+        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        self._create_sidebar()
 
-        self._create_left_panel()
-        self._create_hud_controls()
+        self.main_container = tk.Frame(root, bg=Colors.BG_MAIN)
+        self.main_container.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        self.content_frame = tk.Frame(self.main_container, bg=Colors.BG_MAIN)
+        self.content_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=30)
+
+        # データの初期化
+        self.generate_random_annual_data()
+        self.render_view()
+
+    def _create_sidebar(self):
+        """サイドナビゲーションバー"""
+        tk.Label(self.sidebar, text="V", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, font=("Impact", 24)).pack(pady=20)
+        
+        btn_style = {"bg": Colors.BG_PANEL, "fg": Colors.TEXT_DIM, "activebackground": Colors.BG_CARD, 
+                     "activeforeground": "white", "relief": "flat", "font": ("Meiryo", 10, "bold"), "pady": 15}
+        
+        tk.Button(self.sidebar, text="年次", command=self.go_to_year, **btn_style).pack(fill=tk.X)
+        tk.Button(self.sidebar, text="読込", command=self.load_manifest_file, **btn_style).pack(fill=tk.X)
+        
+        spacer = tk.Frame(self.sidebar, bg=Colors.BG_PANEL)
+        spacer.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Button(self.sidebar, text="設定", **btn_style).pack(fill=tk.X)
+
+    def clear_content(self):
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+
+    def render_view(self):
+        self.clear_content()
+        if self.current_view == "YEAR":
+            self.render_annual_dashboard()
+        elif self.current_view == "MONTH":
+            self.render_monthly_grid()
+        elif self.current_view == "WEEK":
+            self.render_weekly_detail()
+
+    def go_to_year(self):
+        self.current_view = "YEAR"
+        self.render_view()
+
+    def go_to_month(self, month):
+        self.current_view = "MONTH"
+        self.selected_month = month
+        self.render_view()
+
+    def go_to_week(self, week):
+        self.current_view = "WEEK"
+        self.selected_week = week
+        self.render_view()
+
+    # --- Step 1: 年次ダッシュボード ---
+    def render_annual_dashboard(self):
+        header = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        header.pack(fill=tk.X, pady=(0, 20))
+        tk.Label(header, text="2026年度 年間物流集約ダッシュボード", bg=Colors.BG_MAIN, fg="white", font=("Meiryo", 20, "bold")).pack(side=tk.LEFT)
+        
+        # 年間統計
+        stats = self.calculate_annual_stats()
+        summary_frame = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        summary_frame.pack(fill=tk.X, pady=(0, 30))
+        
+        self.create_metric_card_small(summary_frame, "年間削減数", f"{stats['saved_containers']}本", Colors.SUCCESS)
+        self.create_metric_card_small(summary_frame, "推定削減額", f"¥{stats['cost_savings']/10000:,.0f}万円", Colors.ACCENT_MAIN)
+        
+        # タイルグリッド
+        grid_frame = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        grid_frame.pack(fill=tk.BOTH, expand=True)
+        
+        for i in range(12):
+            month_idx = i + 1
+            row, col = i // 4, i % 4
+            m_data = self.annual_data.get(month_idx, {'containers_before': 0})
+            
+            card = tk.Frame(grid_frame, bg=Colors.BG_CARD, highlightthickness=1, highlightbackground=Colors.BG_PANEL, padx=15, pady=15, cursor="hand2")
+            card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+            grid_frame.grid_columnconfigure(col, weight=1)
+            
+            tk.Label(card, text=f"{month_idx}月", bg=Colors.BG_CARD, fg=Colors.ACCENT_MAIN, font=Fonts.HEADER).pack(anchor="w")
+            tk.Label(card, text=f"輸送量: {len(m_data.get('items', []))}荷物", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
+            
+            # 充填率メーター（簡易版）
+            tk.Label(card, text="削減ポテンシャル: 高", bg=Colors.BG_CARD, fg=Colors.WARNING, font=Fonts.SMALL).pack(anchor="w", pady=(5,0))
+            
+            card.bind("<Button-1>", lambda e, m=month_idx: self.go_to_month(m))
+            for child in card.winfo_children():
+                child.bind("<Button-1>", lambda e, m=month_idx: self.go_to_month(m))
+
+    # --- Step 1-2: 月次グリッドビュー (ZOZOTOWN風) ---
+    def render_monthly_grid(self):
+        header = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        header.pack(fill=tk.X, pady=(0, 20))
+        tk.Button(header, text="← 戻る", command=self.go_to_year, bg=Colors.BG_CARD, fg="white", relief="flat").pack(side=tk.LEFT, padx=(0, 20))
+        tk.Label(header, text=f"{self.selected_month}月 輸送計画 (週次一覧)", bg=Colors.BG_MAIN, fg="white", font=("Meiryo", 18, "bold")).pack(side=tk.LEFT)
+
+        grid_frame = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        grid_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 4週間分をカード表示
+        for week_idx in range(1, 5):
+            # 実際は月内の週番号を計算
+            col = (week_idx - 1) % 4
+            card = tk.Frame(grid_frame, bg=Colors.BG_CARD, highlightthickness=1, highlightbackground=Colors.ACCENT_MAIN, padx=20, pady=20, cursor="hand2")
+            card.grid(row=0, column=col, padx=15, pady=15, sticky="nsew")
+            grid_frame.grid_columnconfigure(col, weight=1)
+
+            tk.Label(card, text=f"第 {week_idx} 週", bg=Colors.BG_CARD, fg="white", font=Fonts.HEADER).pack(anchor="w")
+            tk.Label(card, text="-----------------", bg=Colors.BG_CARD, fg=Colors.BG_PANEL).pack(fill=tk.X)
+            
+            # 仮の統計
+            tk.Label(card, text="現状: 10本", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.BODY).pack(anchor="w")
+            tk.Label(card, text="最適化後: 7本", bg=Colors.BG_CARD, fg=Colors.SUCCESS, font=Fonts.BODY_BOLD).pack(anchor="w")
+            
+            tk.Button(card, text="詳細レイアウトを見る", bg=Colors.ACCENT_MAIN, fg="black", font=Fonts.SMALL, 
+                      command=lambda w=week_idx: self.go_to_week(w)).pack(fill=tk.X, pady=(15, 0))
+
+    def create_metric_card_small(self, parent, title, value, color):
+        card = tk.Frame(parent, bg=Colors.BG_CARD, padx=15, pady=10, highlightthickness=1, highlightbackground=color)
+        card.pack(side=tk.LEFT, padx=10)
+        tk.Label(card, text=title, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
+        tk.Label(card, text=value, bg=Colors.BG_CARD, fg=color, font=Fonts.HEADER).pack(anchor="w")
+
+    # --- Step 1-3: 週次3D詳細ビュー ---
+    def render_weekly_detail(self):
+        """現在の3Dメインビュー"""
+        # パンくずリスト
+        nav = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        nav.pack(fill=tk.X, pady=(0, 10))
+        tk.Button(nav, text="月次一覧へ", command=lambda: self.go_to_month(self.selected_month), bg=Colors.BG_PANEL, fg="white", relief="flat").pack(side=tk.LEFT)
+        
+        # 3D描画エリア
+        main_view = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
+        main_view.pack(fill=tk.BOTH, expand=True)
+        
+        # 左側：情報パネル
+        self.info_panel = tk.Frame(main_view, width=300, bg=Colors.BG_PANEL, padx=15, pady=15)
+        self.info_panel.pack(side=tk.LEFT, fill=tk.Y)
+        self.info_panel.pack_propagate(False)
+        
+        tk.Label(self.info_panel, text=f"{self.selected_month}月 第{self.selected_week}週", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, font=Fonts.HEADER).pack(anchor="w")
+        self.lbl_weight = tk.Label(self.info_panel, text="総重量: 0kg", bg=Colors.BG_PANEL, fg="white", font=Fonts.BODY)
+        self.lbl_weight.pack(anchor="w", pady=10)
+        
+        # 右側：3Dキャンバス
+        self.canvas_frame = tk.Frame(main_view, bg=Colors.BG_MAIN)
+        self.canvas_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        # 初期描画（仮）
         self.run_simulation()
 
-    def _create_left_panel(self):
-        # ヘッダー
-        header_frame = tk.Frame(self.left_frame, bg=Colors.BG_PANEL, pady=10, padx=20)
-        header_frame.pack(fill=tk.X)
-        tk.Label(header_frame, text="VANNING SYSTEM", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, 
-                 font=("Meiryo", 16, "bold"), anchor="w").pack(fill=tk.X)
-        tk.Label(header_frame, text="40ft Container Simulator", fg=Colors.TEXT_DIM, bg=Colors.BG_PANEL).pack(anchor=tk.W)
-
-        # [NEW] 総重量ゲージ
-        gauge_frame = tk.Frame(self.left_frame, bg=Colors.BG_PANEL, padx=20, pady=5)
-        gauge_frame.pack(fill=tk.X)
-        self.lbl_weight = tk.Label(gauge_frame, text="総重量: 0 / 26,500 kg (0%)", bg=Colors.BG_PANEL, fg="white", font=Fonts.BODY_BOLD)
-        self.lbl_weight.pack(anchor="w")
-        
-        style = ttk.Style()
-        style.theme_use('default')
-        style.configure("Cyan.Horizontal.TProgressbar", background=Colors.ACCENT_MAIN, troughcolor="#222222")
-        self.weight_progress = ttk.Progressbar(gauge_frame, orient="horizontal", length=440, mode="determinate", style="Cyan.Horizontal.TProgressbar")
-        self.weight_progress.pack(fill=tk.X, pady=(5,0))
-
-        # 年間予定選択エリア
-        yearly_frame = tk.Frame(self.left_frame, bg=Colors.BG_PANEL, padx=20, pady=10)
-        yearly_frame.pack(side=tk.TOP, fill=tk.X)
-        
-        tk.Label(yearly_frame, text="📅 年間シミュレーション設定", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, 
-                 font=Fonts.BODY_BOLD).pack(anchor=tk.W)
-        
-        sel_row = tk.Frame(yearly_frame, bg=Colors.BG_PANEL)
-        sel_row.pack(fill=tk.X, pady=5)
-        
-        tk.Label(sel_row, text="対象月:", bg=Colors.BG_PANEL, fg="white", font=Fonts.SMALL).pack(side=tk.LEFT)
-        self.month_combo = ttk.Combobox(sel_row, values=[f"{i}月" for i in range(1, 13)], width=10, state="readonly")
-        self.month_combo.set("1月")
-        self.month_combo.pack(side=tk.LEFT, padx=5)
-        self.month_combo.bind("<<ComboboxSelected>>", self.on_month_selected)
-        
-        self.btn_yearly = tk.Button(sel_row, text="年間予定表を読込", bg="#224433", fg="white",
-                                    font=("Meiryo", 8, "bold"), command=self.load_yearly_layout, cursor="hand2")
-        self.btn_yearly.pack(side=tk.LEFT, padx=5)
-
-        # [NEW] 年間コストシミュレーションボタン
-        tk.Button(yearly_frame, text="💰 コスト削減効果をシミュレート", bg="#442266", fg="white",
-                  font=("Meiryo", 9, "bold"), command=self.show_annual_simulation_dialog, cursor="hand2").pack(fill=tk.X, pady=5)
-
-        tk.Label(self.left_frame, text="PARTS SELECTION (読込結果)", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, 
-                 font=Fonts.BODY_BOLD).pack(anchor=tk.W, padx=20, pady=(5, 5))
-
-        # スクロールエリア
-        canvas_frame = tk.Frame(self.left_frame, bg=Colors.BG_PANEL, padx=20)
-        canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        canvas = tk.Canvas(canvas_frame, bg=Colors.BG_PANEL, highlightthickness=0)
-        scrollbar = tk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
-        self.scrollable_frame = tk.Frame(canvas, bg=Colors.BG_PANEL)
-        
-        self.scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw", width=420) 
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        for i, (key, data) in enumerate(PARTS_MASTER.items()):
-            # [NEW] Slider UI instead of Spinbox
-            row_frame = tk.Frame(self.scrollable_frame, bg=Colors.BG_CARD, pady=5, padx=5)
-            row_frame.pack(fill=tk.X, pady=3)
-            
-            color_box = tk.Label(row_frame, bg=data['color'], width=1); color_box.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
-            info_frame = tk.Frame(row_frame, bg=Colors.BG_CARD); info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            tk.Label(info_frame, text=data['name'], bg=Colors.BG_CARD, fg="white", font=("Meiryo", 10, "bold"), anchor="w").pack(fill=tk.X)
-            
-            # [NEW] 寸法情報の追加表示（重量は外部ファイル依存）
-            dim_text = f"サイズ: L{data['w']} x W{data['d']} x H{data['h']} / 重量: 外部ファイル参照"
-            tk.Label(info_frame, text=dim_text, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=("Meiryo", 8), anchor="w").pack(fill=tk.X)
-            
-            var = tk.IntVar(value=0)
-            self.qty_vars[key] = var
-            self.last_quantities[key] = 0
-            
-            # 操作用ボタンコンテナ
-            ctrl_frame = tk.Frame(info_frame, bg=Colors.BG_CARD)
-            ctrl_frame.pack(side=tk.RIGHT, padx=5)
-            
-            # マイナスボタン
-            btn_minus = tk.Button(ctrl_frame, text="－", font=("Meiryo", 9, "bold"), width=2,
-                                  bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, relief="flat", cursor="hand2",
-                                  command=lambda k=key: self.on_slider_change(k, str(self.qty_vars[k].get() - 1)))
-            btn_minus.pack(side=tk.LEFT, padx=2)
-            
-            # 数量ラベル
-            val_lbl = tk.Label(ctrl_frame, textvariable=var, bg=Colors.BG_CARD, fg=Colors.ACCENT_HOT, font=("Meiryo", 12, "bold"), width=3)
-            val_lbl.pack(side=tk.LEFT, padx=5)
-            
-            # プラスボタン
-            btn_plus = tk.Button(ctrl_frame, text="＋", font=("Meiryo", 9, "bold"), width=2,
-                                 bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, relief="flat", cursor="hand2",
-                                 command=lambda k=key: self.on_slider_change(k, str(self.qty_vars[k].get() + 1), weight=data['weight']))
-            btn_plus.pack(side=tk.LEFT, padx=2)
-
-        # 追加ログテキスト
-        bottom_frame = tk.Frame(self.left_frame, bg="#111111", padx=20, pady=10)
-        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        btn_run = tk.Button(bottom_frame, text="▶ バンニング一括実行", bg=Colors.ACCENT_MAIN, fg="black",
-                            font=("Meiryo", 14, "bold"), command=self.run_simulation, cursor="hand2")
-        btn_run.pack(fill=tk.X, pady=(0, 5))
-
-        btn_csv = tk.Button(bottom_frame, text="📁 マニフェスト読込 (CSV/Excel)", bg="#334466", fg="white",
-                              font=("Meiryo", 10, "bold"), command=self.load_manifest_file, cursor="hand2")
-        btn_csv.pack(fill=tk.X, pady=(0, 10))
-
-        tk.Label(bottom_frame, text="OPERATION HISTORY", bg="#111111", fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
-        self.log_text = st.ScrolledText(bottom_frame, width=30, height=5, font=("MS Gothic", 9), 
-                                           bg="#050505", fg="white", borderwidth=0, highlightthickness=1, highlightbackground=Colors.ACCENT_MAIN)
-        self.log_text.pack(fill=tk.X, pady=(2, 0))
-
-    def _create_hud_controls(self):
-        hud_frame = tk.Frame(self.right_frame, bg=Colors.BG_MAIN)
-        hud_frame.place(relx=0.98, rely=0.98, anchor="se")
-        
-        btn_base_style = {"bg": "black", "fg": "#00FFFF", "activebackground": "#003333", "activeforeground": "white",
-                          "font": ("Meiryo", 9, "bold"), "relief": "flat", "bd": 1, "highlightthickness": 0}
-        
-        def mk_hud_btn(parent, text, cmd, bg_color="black", fg_color="#00FFFF"):
-            frm = tk.Frame(parent, bg="#00FFFF", padx=1, pady=1)
-            frm.pack(side=tk.LEFT, padx=4)
-            btn = tk.Button(frm, text=text, command=cmd, **btn_base_style)
-            btn.configure(bg=bg_color, fg=fg_color)
-            btn.pack(fill=tk.BOTH)
-            return btn
-        
-        mk_hud_btn(hud_frame, " CLEAR ", self.clear_all_items, bg_color="#220000", fg_color="#FF3333")
-        mk_hud_btn(hud_frame, " ⟲ ", lambda: self.rotate_view(10))
-        mk_hud_btn(hud_frame, " ⟳ ", lambda: self.rotate_view(-10))
+    # --- 以下、既存のメソッドを調整 ---
 
     def append_log(self, text, color="white"):
         self.log_text.insert(tk.END, text + "\n")
@@ -663,12 +694,8 @@ class App:
                 except:
                     continue
                     
-        self.append_log(f"✅ {month_str} から計 {loaded_count} 個の荷物を抽出しました。")
-        if loaded_count > 0:
-            self.append_log("💡 集約シミュレーションを開始します...")
-            self.run_simulation()
-        else:
-            self.append_log("⚠️ 読み込める荷物が見つかりませんでした。", "yellow")
+        self.append_log(f"✅ 合計 {loaded_count} 個のケース（実重量）を読み込みました！", "green")
+        self.run_simulation()
 
     def clear_all_items(self, run_sim=True):
         for key, var in self.qty_vars.items():
