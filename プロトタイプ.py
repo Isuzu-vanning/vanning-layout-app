@@ -98,6 +98,16 @@ class Item:
             y + self.d/2 + self.offset[1],
             z + self.h/2 + self.offset[2]
         )
+    
+    def get_source_color(self):
+        """移動元コンテナに基づく色を返す"""
+        if not hasattr(self, 'source_container_id') or self.source_container_id is None:
+            return self.color
+        # 12色のパレット
+        palette = ["#FF5733", "#33FF57", "#3357FF", "#F333FF", "#FF33A1", "#33FFF3", 
+                   "#F3FF33", "#FF8C33", "#8C33FF", "#33FF8C", "#FF3333", "#33FFFF"]
+        idx = (self.source_container_id - 1) % len(palette)
+        return palette[idx]
 
 # --- 4. コンテナクラス ---
 class Container:
@@ -782,38 +792,76 @@ class App:
             self.run_simulation()
 
     def run_simulation(self):
-        items_to_load = []
-        for key, var in self.qty_vars.items():
-            qty = var.get()
-            if qty > 0:
-                master = PARTS_MASTER[key]
-                weights = self.weight_cache.get(key, [])
-                for i in range(qty):
-                    # 安全対策
-                    assigned_weight = weights[i] if i < len(weights) else random.randint(1000, 15000)
-                    items_to_load.append(Item(key, master, i, assigned_weight))
-        
-        self.container = Container()
-        self.container.load_items(items_to_load)
-        cog, devs = self.container.get_cog_stats()
+        """週全体の荷物を集約して、コンテナをまたいで最適化（最強モード）"""
+        if not self.annual_data or self.selected_week not in self.annual_data:
+            self.append_log("⚠️ 対象週のデータがありません。")
+            return
 
-        # Update gauge
-        tot_w = self.container.total_weight
-        mx_w = self.container.max_weight
+        w_data = self.annual_data[self.selected_week]
+        all_items = []
+        for i, item_data in enumerate(w_data['items']):
+            key = item_data['key']
+            master = PARTS_MASTER[key]
+            item = Item(key, master, i, item_data['weight'])
+            item.source_container_id = item_data.get('source_container_id')
+            all_items.append(item)
+        
+        self.append_log(f"🚀 Week {self.selected_week} の荷物 {len(all_items)}件を集約中...")
+        
+        # 最強モード：全アイテムを一つのリストとして扱い、順番にコンテナに詰め込む
+        self.all_containers = []
+        remaining_items = all_items.copy()
+        
+        # アイテムを大きい順にソート（ビンパッキングの基本）
+        remaining_items.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
+        
+        while remaining_items:
+            new_container = Container()
+            new_container.load_items(remaining_items)
+            self.all_containers.append(new_container)
+            
+            # 詰め込まれなかった荷物を次のコンテナへ
+            remaining_items = new_container.unloaded_items
+            if len(self.all_containers) > 20: # 無限ループ防止
+                break
+
+        self.append_log(f"✅ 最適化完了: {w_data['containers_before']}本 ➡ {len(self.all_containers)}本に削減！")
+        
+        # 現在表示するコンテナ
+        self.current_container_idx = 0
+        self.update_3d_display()
+
+    def update_3d_display(self):
+        """3D表示の更新（複数コンテナの切り替え）"""
+        if not hasattr(self, 'all_containers') or not self.all_containers: return
+        
+        container = self.all_containers[self.current_container_idx]
+        cog, devs = container.get_cog_stats()
+
+        # UI更新
+        tot_w = container.total_weight
+        mx_w = container.max_weight
         pct_w = (tot_w / mx_w) * 100
-        
-        # [NEW] 容積充填率の計算
-        tot_v = sum(item.w * item.d * item.h for item in self.container.items)
-        mx_v = self.container.w * self.container.d * self.container.h
-        pct_v = (tot_v / mx_v) * 100
-        
-        self.lbl_weight.config(text=f"重量: {tot_w:,}/{mx_w:,}kg ({pct_w:.1f}%) | 容積: {pct_v:.1f}%")
+        self.lbl_weight.config(text=f"コンテナ {self.current_container_idx+1}/{len(self.all_containers)} | 重量: {tot_w:,}kg")
         self.weight_progress['value'] = pct_w
         
-        if pct_w > 100: self.lbl_weight.config(fg=Colors.ERROR)
-        else: self.lbl_weight.config(fg="white")
-
         self.draw_3d_graph(cog, devs)
+        self._render_container_selector()
+
+    def _render_container_selector(self):
+        """複数コンテナの切替用サムネイル風ボタン"""
+        if hasattr(self, 'selector_frame'): self.selector_frame.destroy()
+        self.selector_frame = tk.Frame(self.canvas_frame, bg="black")
+        self.selector_frame.place(relx=0.5, rely=0.95, anchor="s")
+        
+        for i in range(len(self.all_containers)):
+            btn_color = Colors.ACCENT_MAIN if i == self.current_container_idx else Colors.BG_CARD
+            tk.Button(self.selector_frame, text=f"C{i+1}", bg=btn_color, fg="black" if i==self.current_container_idx else "white",
+                      command=lambda idx=i: self.set_active_container(idx), relief="flat", padx=10).pack(side=tk.LEFT, padx=2)
+
+    def set_active_container(self, idx):
+        self.current_container_idx = idx
+        self.update_3d_display()
 
     def draw_3d_graph(self, cog, devs):
         if self.fig: plt.close(self.fig); 
@@ -843,12 +891,11 @@ class App:
                      [(xx[i], yy[i], zz[i]) for i in [0, 3, 7, 4]], [(xx[i], yy[i], zz[i]) for i in [1, 2, 6, 5]],
                      [(xx[i], yy[i], zz[i]) for i in [0, 1, 2, 3]], [(xx[i], yy[i], zz[i]) for i in [4, 5, 6, 7]]]
             
-            if is_error:
-                poly = Poly3DCollection(verts, facecolors=Colors.ERROR, linewidths=1.0, edgecolors='white', alpha=0.6, zorder=2)
-            else:
-                poly = Poly3DCollection(verts, facecolors=item.color, linewidths=0.5, edgecolors='black', alpha=0.9, zorder=1)
-                
-            poly._item_info = f"{item.name}\n重量: {item.weight:,}kg\nサイズ: W{item.w} D{item.d} H{item.h}"
+            # [FIX] 移動元の色を使用
+            face_color = item.get_source_color() if not is_error else Colors.ERROR
+            
+            poly = Poly3DCollection(verts, facecolors=face_color, linewidths=0.5, edgecolors='black', alpha=0.9, zorder=1)
+            poly._item_info = f"{item.name}\n元コンテナ: {item.source_container_id}\n重量: {item.weight:,}kg"
             poly.set_picker(True)
             self.ax.add_collection3d(poly)
 
@@ -1025,6 +1072,7 @@ class App:
             for sheet_name in xl.sheet_names:
                 df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
                 current_week = None
+                current_container_id = None
                 for _, row in df.iterrows():
                     cell_0 = str(row[0])
                     match = container_pattern.search(cell_0)
@@ -1032,6 +1080,7 @@ class App:
                         date_str = match.group(1)
                         date_dt = pd.to_datetime(date_str)
                         current_week = date_dt.isocalendar()[1]
+                        current_container_id = int(match.group(2))
                         weekly_data[current_week]['containers_before'] += 1
                     elif current_week is not None:
                         try:
@@ -1040,7 +1089,8 @@ class App:
                             if test_key in PARTS_MASTER:
                                 weekly_data[current_week]['items'].append({
                                     'key': test_key,
-                                    'weight': int(row[6]) if not pd.isna(row[6]) else 1000
+                                    'weight': int(row[6]) if not pd.isna(row[6]) else 1000,
+                                    'source_container_id': current_container_id
                                 })
                         except: continue
             return weekly_data
