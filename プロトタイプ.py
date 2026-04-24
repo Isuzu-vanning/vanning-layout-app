@@ -350,6 +350,7 @@ class App:
         self.fig = None
         self.ax = None
         self.annual_data = None 
+        self.is_optimized = False # [NEW] 最適化済みフラグ
         
         # メインレイアウト構築
         self._build_notebook_layout()
@@ -436,7 +437,9 @@ class App:
         self.canvas_frame = tk.Frame(self.right_panel, bg="black")
         self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
         
-        # ログエリアをキャンバスの下に追加
+        # ログエリアを追加
+        
+        # ログエリアを追加
         self.log_text = st.ScrolledText(self.right_panel, height=6, bg="black", fg=Colors.SUCCESS, font=Fonts.SMALL, borderwidth=0)
         self.log_text.pack(fill=tk.X, pady=5)
 
@@ -476,7 +479,8 @@ class App:
         self._update_dashboard_tab()
         
         if self.selected_node_type == "WEEK":
-            self.run_simulation()
+            self.is_optimized = False # 選択を変えたら未最適化状態に戻す
+            self._update_comparison_display()
         else:
             for w in self.canvas_frame.winfo_children(): w.destroy()
             self.lbl_weight.config(text="総重量: --- / 15,000 kg")
@@ -687,15 +691,20 @@ class App:
                 
                 self.append_log(f"✅ 年間マニフェストの読込完了: 計 {total_items_count} 個の荷物を52週分に展開しました。")
             
+            # 状態をリセット
+            self.is_optimized = False
+            
             # 全体統計を再計算してダッシュボードを更新
             self._update_dashboard_tab()
             
-            # 最初の週を表示（任意）
+            # 最初の週を選択（ただしシミュレーションは実行しない）
             self.selected_node_type = "WEEK"
             self.selected_week = 1
             self.tree.selection_set("W_1")
             self.tree.see("W_1")
-            self.run_simulation()
+            
+            # サマリーのみ更新
+            self._update_comparison_display()
 
         except Exception as e:
             self.append_log(f"❌ 読込失敗: {str(e)}", Colors.ERROR)
@@ -716,11 +725,12 @@ class App:
             self.append_log("🔄 データをリセットするには週次詳細画面で実行してください。")
 
     def run_simulation(self):
-        """週全体の荷物を集約して、コンテナをまたいで最適化（最強モード）"""
+        """シミュレーションを実行（最適化ロジック）"""
         if not self.annual_data or self.selected_week not in self.annual_data:
             self.append_log("⚠️ 対象週のデータがありません。")
             return
 
+        self.is_optimized = True # 最適化実行フラグを立てる
         w_data = self.annual_data[self.selected_week]
         all_items = []
         for i, item_data in enumerate(w_data['items']):
@@ -730,30 +740,45 @@ class App:
             item.source_container_id = item_data.get('source_container_id')
             all_items.append(item)
         
-        self.append_log(f"🚀 Week {self.selected_week} の荷物 {len(all_items)}件を集約中...")
+        self.append_log(f"🚀 Week {self.selected_week} の最適化を開始...")
         
-        # 最強モード：全アイテムを一つのリストとして扱い、順番にコンテナに詰め込む
         self.all_containers = []
         remaining_items = all_items.copy()
-        
-        # アイテムを大きい順にソート（ビンパッキングの基本）
         remaining_items.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
         
         while remaining_items:
             new_container = Container()
             new_container.load_items(remaining_items)
             self.all_containers.append(new_container)
-            
-            # 詰め込まれなかった荷物を次のコンテナへ
             remaining_items = new_container.unloaded_items
-            if len(self.all_containers) > 20: # 無限ループ防止
-                break
+            if len(self.all_containers) > 20: break
 
         self.append_log(f"✅ 最適化完了: {w_data['containers_before']}本 ➡ {len(self.all_containers)}本に削減！")
-        
-        # 現在表示するコンテナ
         self.current_container_idx = 0
         self.update_3d_display()
+        self._update_comparison_display()
+
+    def _update_comparison_display(self):
+        """最適化前後の比較情報をラベルに反映"""
+        if self.selected_node_type != "WEEK" or not self.selected_week or self.selected_week not in self.annual_data:
+            self.lbl_preview_title.config(text="Weekを選択してください", fg="white")
+            self.lbl_weight.config(text="総重量: --- / 15,000 kg")
+            return
+            
+        w_data = self.annual_data[self.selected_week]
+        before_cnt = w_data['containers_before']
+        
+        if self.is_optimized:
+            after_cnt = len(self.all_containers)
+            diff = before_cnt - after_cnt
+            status_text = f"【 Week {self.selected_week} 】 最適化後: {before_cnt}本 ➡ {after_cnt}本 (削減: {diff}本)"
+            self.lbl_preview_title.config(text=status_text, fg=Colors.ACCENT_MAIN)
+        else:
+            status_text = f"【 Week {self.selected_week} 】 現状: {before_cnt}本  ▶ 最適化を実行してください"
+            self.lbl_preview_title.config(text=status_text, fg="white")
+            # 3Dをクリア
+            for w in self.canvas_frame.winfo_children(): w.destroy()
+            self.lbl_weight.config(text=f"荷物数: {len(w_data['items'])}個")
 
     def update_3d_display(self):
         """3D表示の更新（複数コンテナの切り替え）"""
@@ -777,6 +802,11 @@ class App:
         if hasattr(self, 'selector_frame'): self.selector_frame.destroy()
         self.selector_frame = tk.Frame(self.canvas_frame, bg="black")
         self.selector_frame.place(relx=0.5, rely=0.95, anchor="s")
+        
+        # [NEW] コンテナ切替の説明ラベルを追加
+        if hasattr(self, 'selector_label'): self.selector_label.destroy()
+        self.selector_label = tk.Label(self.canvas_frame, text="コンテナ切替:", bg="black", fg=Colors.TEXT_DIM, font=Fonts.SMALL)
+        self.selector_label.place(relx=0.5, rely=0.97, anchor="s", x=-150) # ボタンの左側に配置
         
         for i in range(len(self.all_containers)):
             btn_color = Colors.ACCENT_MAIN if i == self.current_container_idx else Colors.BG_CARD
@@ -833,32 +863,31 @@ class App:
             if c.total_weight > 0:
                 self.ax.scatter([cog[0]], [cog[1]], [cog[2]], color=Colors.ACCENT_HOT, s=500, marker='o', 
                                 edgecolors='white', linewidths=2, label="重心\nCOG", zorder=100, alpha=0.8)
-                # 重心の影を底面に投影
                 self.ax.scatter([cog[0]], [cog[1]], [0], color=Colors.ACCENT_HOT, s=100, marker='x', alpha=0.5, zorder=99)
             
-            # [NEW] フローティング重量表示
-            self.ax.text(c.w/2, c.d/2, c.h + 500, f"TOTAL: {c.total_weight:,}kg", color="white", 
-                         fontsize=12, fontweight='bold', ha='center', bbox=dict(facecolor=Colors.BG_CARD, alpha=0.7, edgecolor=Colors.ACCENT_MAIN))
+            # [FIX] 重量表示を右上に逃がす
+            self.ax.text(c.w, c.d, c.h * 1.3, f"TOTAL: {c.total_weight:,}kg", color=Colors.ACCENT_MAIN, 
+                         fontsize=14, fontweight='bold', ha='right', 
+                         bbox=dict(facecolor=Colors.BG_CARD, alpha=0.8, edgecolor=Colors.ACCENT_MAIN))
 
-            # [NEW] 目盛りの間引き
-            self.ax.yaxis.set_major_locator(ticker.MaxNLocator(5))
-            self.ax.xaxis.set_major_locator(ticker.MaxNLocator(8))
-            self.ax.zaxis.set_major_locator(ticker.MaxNLocator(5))
+            # [FIX] 目盛りと軸ラベルの調整（数値を減らして見やすく）
+            self.ax.xaxis.set_major_locator(ticker.MaxNLocator(4))
+            self.ax.yaxis.set_major_locator(ticker.MaxNLocator(3))
+            self.ax.zaxis.set_major_locator(ticker.MaxNLocator(3))
 
-            self.ax.grid(False)
-            self.ax.set_xlabel('L（奥/手前）', color=Colors.TEXT_DIM); self.ax.set_ylabel('W（横幅）', color=Colors.TEXT_DIM); self.ax.set_zlabel('H（高さ）', color=Colors.TEXT_DIM)
-            self.ax.tick_params(colors=Colors.TEXT_DIM)
-            self.ax.xaxis.pane.fill = False; self.ax.yaxis.pane.fill = False; self.ax.zaxis.pane.fill = False
+            self.ax.grid(True, linestyle=':', alpha=0.3)
+            self.ax.set_xlabel('L (奥行)', color=Colors.TEXT_DIM, labelpad=15)
+            self.ax.set_ylabel('W (幅)', color=Colors.TEXT_DIM, labelpad=15)
+            self.ax.set_zlabel('H (高)', color=Colors.TEXT_DIM, labelpad=15)
+            self.ax.tick_params(colors=Colors.TEXT_DIM, labelsize=9)
             
-            # イベント接続の強化
             self.fig.canvas.mpl_connect('pick_event', self.on_pick)
             self.fig.canvas.mpl_connect('motion_notify_event', self.on_hover)
             self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_down)
             
-            # [FIX] デフォルトの回転を無効化し、自前で制御するための準備
-            self.ax.mouse_init(rotate_btn=3, zoom_btn=None) # 右クリック(3)で回転
+            self.ax.mouse_init(rotate_btn=3, zoom_btn=None) 
 
-            self.ax.legend(loc='upper right', facecolor=Colors.BG_CARD, edgecolor=Colors.BG_PANEL, labelcolor=Colors.TEXT_MAIN)
+            self.ax.legend(loc='upper left', facecolor=Colors.BG_CARD, edgecolor=Colors.BG_PANEL, labelcolor=Colors.TEXT_MAIN)
             canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame); canvas.draw()
             canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
             
