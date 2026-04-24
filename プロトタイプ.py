@@ -335,12 +335,12 @@ class Card(tk.Frame):
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("Vanning Optimizer v6.0 [Professional] - 3 Pane Interface")
+        self.root.title("Vanning Optimizer v6.0 [Professional] - Notebook UI")
         self.root.geometry("1600x950")
         self.root.configure(bg=Colors.BG_MAIN)
         
-        # 状態管理 (画面遷移は廃止、選択ノードのみ管理)
-        self.selected_node_type = "YEAR" # YEAR, MONTH, WEEK
+        # 状態管理
+        self.selected_node_type = "YEAR"
         self.selected_month = None
         self.selected_week = None
         
@@ -352,79 +352,86 @@ class App:
         self.annual_data = None 
         
         # メインレイアウト構築
-        self._build_3pane_layout()
+        self._build_notebook_layout()
 
         # データの初期化
         self.generate_random_annual_data()
         self._populate_treeview()
-        self._update_center_pane()
+        self._update_dashboard_tab()
 
-    def _build_3pane_layout(self):
-        # メインフレーム
-        main_container = tk.Frame(self.root, bg=Colors.BG_MAIN)
-        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def _build_notebook_layout(self):
+        # 内部ログ保持用 (表示しないがエラー防止)
+        self.log_text = tk.Text(self.root) 
         
-        # --- 1. 左ペイン（ツリーナビゲーション） ---
-        self.left_panel = tk.Frame(main_container, width=250, bg=Colors.BG_PANEL)
-        self.left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        self.left_panel.pack_propagate(False)
-        
-        tk.Label(self.left_panel, text="📁 ナビゲーション", bg=Colors.BG_PANEL, fg="white", font=Fonts.HEADER).pack(anchor="w", pady=10, padx=10)
-        
-        # Treeviewのスタイル設定
         style = ttk.Style()
         style.theme_use("default")
+        style.configure("TNotebook", background=Colors.BG_MAIN, borderwidth=0)
+        style.configure("TNotebook.Tab", background=Colors.BG_PANEL, foreground="white", padding=[20, 10], font=Fonts.BODY_BOLD)
+        style.map("TNotebook.Tab", background=[("selected", Colors.ACCENT_MAIN)], foreground=[("selected", "black")])
+
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # ==========================================
+        # タブ1: 管理・分析タブ
+        # ==========================================
+        self.tab_dashboard = tk.Frame(self.notebook, bg=Colors.BG_MAIN)
+        self.notebook.add(self.tab_dashboard, text="📊 管理・分析タブ")
+        
+        self.lbl_dashboard_title = tk.Label(self.tab_dashboard, text="📊 年間物流集約ダッシュボード", bg=Colors.BG_MAIN, fg="white", font=Fonts.HEADER)
+        self.lbl_dashboard_title.pack(anchor="w", pady=(20, 20), padx=30)
+        
+        self.metrics_frame = tk.Frame(self.tab_dashboard, bg=Colors.BG_MAIN)
+        self.metrics_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
+        
+        self.chart_frame = tk.Frame(self.tab_dashboard, bg=Colors.BG_CARD, padx=20, pady=20)
+        self.chart_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=(0, 30))
+
+        # ==========================================
+        # タブ2: バンニング作業タブ
+        # ==========================================
+        self.tab_workspace = tk.Frame(self.notebook, bg=Colors.BG_MAIN)
+        self.notebook.add(self.tab_workspace, text="📦 バンニング作業タブ")
+        
+        self.workspace_paned = ttk.PanedWindow(self.tab_workspace, orient=tk.HORIZONTAL)
+        self.workspace_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # --- 左側（ツリーナビゲーション） ---
+        self.left_panel = tk.Frame(self.workspace_paned, width=300, bg=Colors.BG_PANEL)
+        self.workspace_paned.add(self.left_panel, weight=1)
+        self.left_panel.pack_propagate(False)
+        
+        tk.Label(self.left_panel, text="📁 ナビゲーション", bg=Colors.BG_PANEL, fg="white", font=Fonts.HEADER).pack(anchor="w", pady=15, padx=15)
+        
         style.configure("Treeview", background=Colors.BG_CARD, foreground="white", fieldbackground=Colors.BG_CARD, borderwidth=0, font=Fonts.BODY)
         style.map("Treeview", background=[("selected", Colors.ACCENT_MAIN)], foreground=[("selected", "black")])
         
         self.tree = ttk.Treeview(self.left_panel, selectmode="browse", show="tree")
-        self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         
-        tk.Button(self.left_panel, text="📁 CSV読込", bg="#334466", fg="white", font=Fonts.BODY_BOLD, command=self.load_manifest_file).pack(fill=tk.X, padx=10, pady=10)
+        tk.Button(self.left_panel, text="📁 CSV読込", bg="#334466", fg="white", font=Fonts.BODY_BOLD, command=self.load_manifest_file).pack(fill=tk.X, padx=15, pady=15)
 
-        # --- 2. 中央ペイン（ダッシュボード） ---
-        self.center_panel = tk.Frame(main_container, width=500, bg=Colors.BG_MAIN)
-        self.center_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        # --- 右側（3Dプレビュー・画面の80%占有） ---
+        self.right_panel = tk.Frame(self.workspace_paned, bg=Colors.BG_MAIN)
+        self.workspace_paned.add(self.right_panel, weight=4) # 80%占有
         
-        self.lbl_dashboard_title = tk.Label(self.center_panel, text="📊 年間物流集約ダッシュボード", bg=Colors.BG_MAIN, fg="white", font=Fonts.HEADER)
-        self.lbl_dashboard_title.pack(anchor="w", pady=10)
+        preview_header = tk.Frame(self.right_panel, bg=Colors.BG_PANEL, padx=20, pady=15)
+        preview_header.pack(fill=tk.X)
         
-        # メトリクス表示エリア
-        self.metrics_frame = tk.Frame(self.center_panel, bg=Colors.BG_MAIN)
-        self.metrics_frame.pack(fill=tk.X, pady=(0, 15))
+        self.lbl_preview_title = tk.Label(preview_header, text="Weekが選択されていません", bg=Colors.BG_PANEL, fg="white", font=Fonts.HEADER)
+        self.lbl_preview_title.pack(side=tk.LEFT)
         
-        # グラフ表示エリア
-        self.chart_frame = tk.Frame(self.center_panel, bg=Colors.BG_CARD, padx=10, pady=10)
-        self.chart_frame.pack(fill=tk.BOTH, expand=True)
-
-        # --- 3. 右ペイン（3Dプレビュー） ---
-        self.right_panel = tk.Frame(main_container, width=650, bg=Colors.BG_PANEL, padx=15, pady=15)
-        self.right_panel.pack(side=tk.RIGHT, fill=tk.BOTH)
-        self.right_panel.pack_propagate(False)
+        self.lbl_weight = tk.Label(preview_header, text="総重量: --- / 15,000 kg", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, font=Fonts.BODY_BOLD)
+        self.lbl_weight.pack(side=tk.RIGHT)
         
-        tk.Label(self.right_panel, text="📦 3D コンテナプレビュー", bg=Colors.BG_PANEL, fg="white", font=Fonts.HEADER).pack(anchor="w", pady=(0, 10))
-        
-        self.lbl_preview_title = tk.Label(self.right_panel, text="Weekが選択されていません", bg=Colors.BG_PANEL, fg=Colors.TEXT_DIM, font=Fonts.BODY)
-        self.lbl_preview_title.pack(anchor="w")
-        
-        self.lbl_weight = tk.Label(self.right_panel, text="総重量: --- / 15,000 kg", bg=Colors.BG_PANEL, fg="white", font=Fonts.HEADER)
-        self.lbl_weight.pack(anchor="w", pady=(10, 5))
-        
-        self.weight_progress = ttk.Progressbar(self.right_panel, orient="horizontal", mode="determinate", length=300)
-        self.weight_progress.pack(fill=tk.X, pady=(0, 10))
-        
-        btn_frame = tk.Frame(self.right_panel, bg=Colors.BG_PANEL)
-        btn_frame.pack(fill=tk.X, pady=10)
-        tk.Button(btn_frame, text="▶ 最適化を実行", bg=Colors.ACCENT_MAIN, fg="black", font=Fonts.BODY_BOLD, command=self.run_simulation).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        tk.Button(btn_frame, text="🔄 クリア", bg="#445566", fg="white", font=Fonts.BODY_BOLD, command=self.clear_all_items).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
-        
-        tk.Label(self.right_panel, text="LOG", bg=Colors.BG_PANEL, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
-        self.log_text = st.ScrolledText(self.right_panel, height=8, bg="black", fg=Colors.SUCCESS, font=Fonts.SMALL, borderwidth=0)
-        self.log_text.pack(fill=tk.X, pady=5)
+        btn_frame = tk.Frame(self.right_panel, bg=Colors.BG_MAIN, pady=10)
+        btn_frame.pack(fill=tk.X)
+        tk.Button(btn_frame, text="▶ 最適化を実行", bg=Colors.ACCENT_MAIN, fg="black", font=Fonts.BODY_BOLD, command=self.run_simulation, width=15).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="🔄 クリア", bg="#445566", fg="white", font=Fonts.BODY_BOLD, command=self.clear_all_items, width=15).pack(side=tk.LEFT, padx=5)
         
         self.canvas_frame = tk.Frame(self.right_panel, bg="black")
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
     def _populate_treeview(self):
         self.tree.delete(*self.tree.get_children())
@@ -445,60 +452,48 @@ class App:
             self.selected_node_type = "YEAR"
             self.selected_month = None
             self.selected_week = None
-            self.lbl_dashboard_title.config(text="📊 年間物流集約ダッシュボード")
+            self.lbl_preview_title.config(text="※ 詳細プレビューは Week を選択してください")
         elif iid.startswith("M_"):
             self.selected_node_type = "MONTH"
             self.selected_month = int(iid.split("_")[1])
             self.selected_week = None
-            self.lbl_dashboard_title.config(text=f"📊 {self.selected_month}月 輸送効率ダッシュボード")
+            self.lbl_preview_title.config(text=f"※ {self.selected_month}月 が選択されています")
         elif iid.startswith("W_"):
             self.selected_node_type = "WEEK"
             self.selected_week = int(iid.split("_")[1])
             parent = self.tree.parent(iid)
             if parent.startswith("M_"):
                 self.selected_month = int(parent.split("_")[1])
-            self.lbl_dashboard_title.config(text=f"📊 Week {self.selected_week} ダッシュボード")
+            self.lbl_preview_title.config(text=f"【 Week {self.selected_week} 】の詳細プレビュー")
                 
-        self._update_center_pane()
+        self._update_dashboard_tab()
         
         if self.selected_node_type == "WEEK":
-            self.lbl_preview_title.config(text=f"【 Week {self.selected_week} 】の詳細プレビュー")
-            # 選択されたらプレビューも更新
             self.run_simulation()
         else:
-            self.lbl_preview_title.config(text="※ 3Dプレビューは Week を選択してください")
             for w in self.canvas_frame.winfo_children(): w.destroy()
             self.lbl_weight.config(text="総重量: --- / 15,000 kg")
-            self.weight_progress['value'] = 0
 
-    def _update_center_pane(self):
+    def _update_dashboard_tab(self):
         for w in self.metrics_frame.winfo_children(): w.destroy()
         for w in self.chart_frame.winfo_children(): w.destroy()
         
         stats = self.calculate_annual_stats()
         
-        if self.selected_node_type == "YEAR":
+        if self.selected_node_type == "YEAR" or self.selected_node_type is None:
+            self.lbl_dashboard_title.config(text="📊 年間物流集約ダッシュボード")
             self.create_metric_card_small(self.metrics_frame, "年間削減数", f"{stats['saved_containers']}本", Colors.SUCCESS, subtitle=f"({stats['total_before']}本 → {stats['total_after']}本)")
             self.create_metric_card_small(self.metrics_frame, "推定削減額", f"¥{stats['cost_savings']/10000:,.0f}万円", Colors.ACCENT_MAIN, subtitle=f"削減率: {stats['reduction_rate']:.1f}%")
             self._render_monthly_trend_chart(self.chart_frame, stats)
             
-        elif self.selected_node_type == "MONTH":
-            m_stats = self._get_month_stats(self.selected_month, stats)
+        elif self.selected_node_type == "MONTH" or self.selected_node_type == "WEEK":
+            month = self.selected_month if self.selected_month else 1
+            self.lbl_dashboard_title.config(text=f"📊 {month}月 輸送効率ダッシュボード")
+            m_stats = self._get_month_stats(month, stats)
             saved = m_stats['before'] - m_stats['after']
-            self.create_metric_card_small(self.metrics_frame, f"{self.selected_month}月 削減数", f"{saved}本", Colors.SUCCESS, subtitle=f"({m_stats['before']}本 → {m_stats['after']}本)")
+            self.create_metric_card_small(self.metrics_frame, f"{month}月 削減数", f"{saved}本", Colors.SUCCESS, subtitle=f"({m_stats['before']}本 → {m_stats['after']}本)")
             self.create_metric_card_small(self.metrics_frame, "対象荷物数", f"{m_stats['items_count']}件", Colors.TEXT_MAIN)
-            self._update_dashboard_bottom_chart(stats, self.selected_month, self.chart_frame)
-            
-        elif self.selected_node_type == "WEEK":
-            w = self.selected_week
-            before = stats['weekly_before'][w-1]
-            after = stats['weekly_after'][w-1]
-            saved = before - after
-            self.create_metric_card_small(self.metrics_frame, f"Week {w} 削減数", f"{saved}本", Colors.SUCCESS)
-            self.create_metric_card_small(self.metrics_frame, "現状(最適化前)", f"{before}本", Colors.TEXT_DIM)
-            self.create_metric_card_small(self.metrics_frame, "最適化後", f"{after}本", Colors.ACCENT_MAIN)
-            if self.selected_month:
-                self._update_dashboard_bottom_chart(stats, self.selected_month, self.chart_frame)
+            self._update_dashboard_bottom_chart(stats, month, self.chart_frame)
 
     def _render_monthly_trend_chart(self, parent, stats):
         fig, ax = plt.subplots(figsize=(12, 4), dpi=100)
