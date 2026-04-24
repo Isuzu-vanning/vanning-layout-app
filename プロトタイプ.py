@@ -435,6 +435,10 @@ class App:
         
         self.canvas_frame = tk.Frame(self.right_panel, bg="black")
         self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        
+        # ログエリアをキャンバスの下に追加
+        self.log_text = st.ScrolledText(self.right_panel, height=6, bg="black", fg=Colors.SUCCESS, font=Fonts.SMALL, borderwidth=0)
+        self.log_text.pack(fill=tk.X, pady=5)
 
     def _populate_treeview(self):
         self.tree.delete(*self.tree.get_children())
@@ -741,85 +745,87 @@ class App:
         self.update_3d_display()
 
     def draw_3d_graph(self, cog, devs):
-        if self.fig: plt.close(self.fig); 
-        for w in self.canvas_frame.winfo_children(): w.destroy()
-        
-        plt.style.use('dark_background')
-        self.fig = plt.figure(figsize=(8, 6), dpi=100)
-        self.fig.patch.set_facecolor(Colors.BG_MAIN)
-        self.ax = self.fig.add_subplot(111, projection='3d')
-        self.ax.set_facecolor(Colors.BG_MAIN)
-        self.ax.set_title("Vanning Optimizer: Layout View", fontsize=14, color=Colors.ACCENT_MAIN)
-        c = self.container
-        self.ax.set_xlim([0, c.w]); self.ax.set_ylim([0, c.d]); self.ax.set_zlim([0, c.h])
-        self.ax.set_box_aspect((c.w, c.d, c.h))
-
-        # コンテナ境界線
-        edges = [([0, c.w, c.w, 0, 0], [0, 0, c.d, c.d, 0], [0, 0, 0, 0, 0]), ([0, c.w, c.w, 0, 0], [0, 0, c.d, c.d, 0], [c.h]*5)]
-        for x in [0, c.w]:
-            for y in [0, c.d]: edges.append(([x, x], [y, y], [0, c.h]))
-        for xs, ys, zs in edges: 
-            self.ax.plot(xs, ys, zs, color=Colors.ACCENT_MAIN, lw=1.5, alpha=0.3, zorder=0)
-
-        def draw_box(item, is_error=False):
-            x, y, z = item.position; dx, dy, dz = item.w, item.d, item.h
-            xx = [x, x+dx, x+dx, x, x, x+dx, x+dx, x]; yy = [y, y, y+dy, y+dy, y, y, y+dy, y+dy]; zz = [z, z, z, z, z+dz, z+dz, z+dz, z+dz]
-            verts = [[(xx[i], yy[i], zz[i]) for i in [0, 1, 5, 4]], [(xx[i], yy[i], zz[i]) for i in [7, 6, 2, 3]],
-                     [(xx[i], yy[i], zz[i]) for i in [0, 3, 7, 4]], [(xx[i], yy[i], zz[i]) for i in [1, 2, 6, 5]],
-                     [(xx[i], yy[i], zz[i]) for i in [0, 1, 2, 3]], [(xx[i], yy[i], zz[i]) for i in [4, 5, 6, 7]]]
+        try:
+            if self.fig: plt.close(self.fig); 
+            for w in self.canvas_frame.winfo_children(): w.destroy()
             
-            # [FIX] 移動元の色を使用
-            face_color = item.get_source_color() if not is_error else Colors.ERROR
+            plt.style.use('dark_background')
+            self.fig = plt.figure(figsize=(8, 6), dpi=100)
+            self.fig.patch.set_facecolor(Colors.BG_MAIN)
+            self.ax = self.fig.add_subplot(111, projection='3d')
+            self.ax.set_facecolor(Colors.BG_MAIN)
+            self.ax.set_title("Vanning Optimizer: Layout View", fontsize=14, color=Colors.ACCENT_MAIN)
+            c = self.container
+            self.ax.set_xlim([0, c.w]); self.ax.set_ylim([0, c.d]); self.ax.set_zlim([0, c.h])
+            self.ax.set_box_aspect((c.w, c.d, c.h))
+
+            # コンテナ境界線
+            edges = [([0, c.w, c.w, 0, 0], [0, 0, c.d, c.d, 0], [0, 0, 0, 0, 0]), ([0, c.w, c.w, 0, 0], [0, 0, c.d, c.d, 0], [c.h]*5)]
+            for x in [0, c.w]:
+                for y in [0, c.d]: edges.append(([x, x], [y, y], [0, c.h]))
+            for xs, ys, zs in edges: 
+                self.ax.plot(xs, ys, zs, color=Colors.ACCENT_MAIN, lw=1.5, alpha=0.3, zorder=0)
+
+            def draw_box(item, is_error=False):
+                x, y, z = item.position; dx, dy, dz = item.w, item.d, item.h
+                xx = [x, x+dx, x+dx, x, x, x+dx, x+dx, x]; yy = [y, y, y+dy, y+dy, y, y, y+dy, y+dy]; zz = [z, z, z, z, z+dz, z+dz, z+dz, z+dz]
+                verts = [[(xx[i], yy[i], zz[i]) for i in [0, 1, 5, 4]], [(xx[i], yy[i], zz[i]) for i in [7, 6, 2, 3]],
+                         [(xx[i], yy[i], zz[i]) for i in [0, 3, 7, 4]], [(xx[i], yy[i], zz[i]) for i in [1, 2, 6, 5]],
+                         [(xx[i], yy[i], zz[i]) for i in [0, 1, 2, 3]], [(xx[i], yy[i], zz[i]) for i in [4, 5, 6, 7]]]
+                
+                # [FIX] 移動元の色を使用
+                face_color = item.get_source_color() if not is_error else Colors.ERROR
+                
+                poly = Poly3DCollection(verts, facecolors=face_color, linewidths=0.5, edgecolors='black', alpha=0.9, zorder=1)
+                poly._item_info = f"{item.name}\n元コンテナ: {item.source_container_id}\n重量: {item.weight:,}kg"
+                poly._item_ref = item # アイテム本体への参照を保持
+                poly.set_picker(True)
+                self.ax.add_collection3d(poly)
+
+            # 正常に積載されたアイテム
+            for item in c.items:
+                draw_box(item, False)
+                
+            # [NEW] 重心ボール表示
+            if c.total_weight > 0:
+                self.ax.scatter([cog[0]], [cog[1]], [cog[2]], color=Colors.ACCENT_HOT, s=500, marker='o', 
+                                edgecolors='white', linewidths=2, label="重心\nCOG", zorder=100, alpha=0.8)
+                # 重心の影を底面に投影
+                self.ax.scatter([cog[0]], [cog[1]], [0], color=Colors.ACCENT_HOT, s=100, marker='x', alpha=0.5, zorder=99)
             
-            poly = Poly3DCollection(verts, facecolors=face_color, linewidths=0.5, edgecolors='black', alpha=0.9, zorder=1)
-            poly._item_info = f"{item.name}\n元コンテナ: {item.source_container_id}\n重量: {item.weight:,}kg"
-            poly._item_ref = item # アイテム本体への参照を保持
-            poly.set_picker(True)
-            self.ax.add_collection3d(poly)
+            # [NEW] フローティング重量表示
+            self.ax.text(c.w/2, c.d/2, c.h + 500, f"TOTAL: {c.total_weight:,}kg", color="white", 
+                         fontsize=12, fontweight='bold', ha='center', bbox=dict(facecolor=Colors.BG_CARD, alpha=0.7, edgecolor=Colors.ACCENT_MAIN))
 
-        # 正常に積載されたアイテム
-        for item in c.items:
-            draw_box(item, False)
+            # [NEW] 目盛りの間引き
+            self.ax.yaxis.set_major_locator(ticker.MaxNLocator(5))
+            self.ax.xaxis.set_major_locator(ticker.MaxNLocator(8))
+            self.ax.zaxis.set_major_locator(ticker.MaxNLocator(5))
+
+            self.ax.grid(False)
+            self.ax.set_xlabel('L（奥/手前）', color=Colors.TEXT_DIM); self.ax.set_ylabel('W（横幅）', color=Colors.TEXT_DIM); self.ax.set_zlabel('H（高さ）', color=Colors.TEXT_DIM)
+            self.ax.tick_params(colors=Colors.TEXT_DIM)
+            self.ax.xaxis.pane.fill = False; self.ax.yaxis.pane.fill = False; self.ax.zaxis.pane.fill = False
             
-        # エラーではみ出た・重量オーバーしたアイテムの描画は非表示にする
-        # for e_item in c.unloaded_items:
-        #     draw_box(e_item, True)
+            # イベント接続の強化
+            self.fig.canvas.mpl_connect('pick_event', self.on_pick)
+            self.fig.canvas.mpl_connect('motion_notify_event', self.on_hover)
+            self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_down)
+            
+            # [FIX] デフォルトの回転を無効化し、自前で制御するための準備
+            self.ax.mouse_init(rotate_btn=3, zoom_btn=None) # 右クリック(3)で回転
 
-        # [NEW] 重心ボール表示
-        if c.total_weight > 0:
-            self.ax.scatter([cog[0]], [cog[1]], [cog[2]], color=Colors.ACCENT_HOT, s=500, marker='o', 
-                            edgecolors='white', linewidths=2, label="重心\nCOG", zorder=100, alpha=0.8)
-            # 重心の影を底面に投影
-            self.ax.scatter([cog[0]], [cog[1]], [0], color=Colors.ACCENT_HOT, s=100, marker='x', alpha=0.5, zorder=99)
-        
-        # [NEW] フローティング重量表示
-        self.ax.text(c.w/2, c.d/2, c.h + 500, f"TOTAL: {c.total_weight:,}kg", color="white", 
-                     fontsize=12, fontweight='bold', ha='center', bbox=dict(facecolor=Colors.BG_CARD, alpha=0.7, edgecolor=Colors.ACCENT_MAIN))
-
-        # [NEW] 目盛りの間引き
-        self.ax.yaxis.set_major_locator(ticker.MaxNLocator(5))
-        self.ax.xaxis.set_major_locator(ticker.MaxNLocator(8))
-        self.ax.zaxis.set_major_locator(ticker.MaxNLocator(5))
-
-        self.ax.grid(False)
-        self.ax.set_xlabel('L（奥/手前）', color=Colors.TEXT_DIM); self.ax.set_ylabel('W（横幅）', color=Colors.TEXT_DIM); self.ax.set_zlabel('H（高さ）', color=Colors.TEXT_DIM)
-        self.ax.tick_params(colors=Colors.TEXT_DIM)
-        self.ax.xaxis.pane.fill = False; self.ax.yaxis.pane.fill = False; self.ax.zaxis.pane.fill = False
-        
-        # イベント接続の強化
-        self.fig.canvas.mpl_connect('pick_event', self.on_pick)
-        self.fig.canvas.mpl_connect('motion_notify_event', self.on_hover)
-        self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_down)
-        
-        # [FIX] デフォルトの回転を無効化し、自前で制御するための準備
-        self.ax.mouse_init(rotate_btn=3, zoom_btn=None) # 右クリック(3)で回転
-
-        self.ax.legend(loc='upper right', facecolor=Colors.BG_CARD, edgecolor=Colors.BG_PANEL, labelcolor=Colors.TEXT_MAIN)
-        canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame); canvas.draw()
-        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        
-        # ツールチップ用ラベル（初期は非表示）
-        self.tooltip = tk.Label(self.canvas_frame, bg="yellow", fg="black", font=Fonts.SMALL, padx=5, pady=2, relief="solid", borderwidth=1)
+            self.ax.legend(loc='upper right', facecolor=Colors.BG_CARD, edgecolor=Colors.BG_PANEL, labelcolor=Colors.TEXT_MAIN)
+            canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame); canvas.draw()
+            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+            
+            # ツールチップ用ラベル（初期は非表示）
+            self.tooltip = tk.Label(self.canvas_frame, bg="yellow", fg="black", font=Fonts.SMALL, padx=5, pady=2, relief="solid", borderwidth=1)
+            self.canvas_frame.update_idletasks() # 強制更新
+        except Exception as e:
+            self.append_log(f"❌ 描画エラー: {str(e)}", Colors.ERROR)
+            import traceback
+            print(traceback.format_exc())
     
     def on_mouse_down(self, event):
         """マウスボタン押下時の処理"""
