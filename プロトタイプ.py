@@ -920,9 +920,15 @@ class App:
 
         # [NEW] 重心ボール表示
         if c.total_weight > 0:
-            self.ax.scatter([cog[0]], [cog[1]], [cog[2]], color=Colors.ACCENT_HOT, s=400, marker='o', 
-                            edgecolors='white', linewidths=2, label="重心\nCOG", zorder=100)
+            self.ax.scatter([cog[0]], [cog[1]], [cog[2]], color=Colors.ACCENT_HOT, s=500, marker='o', 
+                            edgecolors='white', linewidths=2, label="重心\nCOG", zorder=100, alpha=0.8)
+            # 重心の影を底面に投影
+            self.ax.scatter([cog[0]], [cog[1]], [0], color=Colors.ACCENT_HOT, s=100, marker='x', alpha=0.5, zorder=99)
         
+        # [NEW] フローティング重量表示
+        self.ax.text(c.w/2, c.d/2, c.h + 500, f"TOTAL: {c.total_weight:,}kg", color="white", 
+                     fontsize=12, fontweight='bold', ha='center', bbox=dict(facecolor=Colors.BG_CARD, alpha=0.7, edgecolor=Colors.ACCENT_MAIN))
+
         # [NEW] 目盛りの間引き
         self.ax.yaxis.set_major_locator(ticker.MaxNLocator(5))
         self.ax.xaxis.set_major_locator(ticker.MaxNLocator(8))
@@ -933,12 +939,47 @@ class App:
         self.ax.tick_params(colors=Colors.TEXT_DIM)
         self.ax.xaxis.pane.fill = False; self.ax.yaxis.pane.fill = False; self.ax.zaxis.pane.fill = False
         
+        # イベント接続の強化
         self.fig.canvas.mpl_connect('pick_event', self.on_pick)
+        self.fig.canvas.mpl_connect('motion_notify_event', self.on_hover)
+        self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_down)
         
+        # [FIX] デフォルトの回転を無効化し、自前で制御するための準備
+        self.ax.mouse_init(rotate_btn=3, zoom_btn=None) # 右クリック(3)で回転
+
         self.ax.legend(loc='upper right', facecolor=Colors.BG_CARD, edgecolor=Colors.BG_PANEL, labelcolor=Colors.TEXT_MAIN)
         canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame); canvas.draw()
         canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
+        # ツールチップ用ラベル（初期は非表示）
+        self.tooltip = tk.Label(self.canvas_frame, bg="yellow", fg="black", font=Fonts.SMALL, padx=5, pady=2, relief="solid", borderwidth=1)
     
+    def on_mouse_down(self, event):
+        """マウスボタン押下時の処理"""
+        # 特殊な処理が必要な場合に備えて予約
+        pass
+
+    def on_hover(self, event):
+        """マウスホバー時のツールチップ表示"""
+        if event.inaxes != self.ax:
+            self.tooltip.place_forget()
+            return
+            
+        found = False
+        for collection in self.ax.collections:
+            if hasattr(collection, '_item_info'):
+                cont, ind = collection.contains(event)
+                if cont:
+                    # ツールチップを表示
+                    x, y = event.canvas.get_width_height()
+                    self.tooltip.config(text=collection._item_info)
+                    self.tooltip.place(x=event.x, y=y - event.y - 40)
+                    found = True
+                    break
+        
+        if not found:
+            self.tooltip.place_forget()
+
     def toggle_edit_mode(self):
         if self.edit_mode_var.get():
             self.append_log("🔧 編集モード：荷物をクリックして移動先を選択してください。", Colors.ACCENT_HOT)
