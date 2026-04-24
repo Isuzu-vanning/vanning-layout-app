@@ -771,12 +771,12 @@ class App:
         """3D表示の更新（複数コンテナの切り替え）"""
         if not hasattr(self, 'all_containers') or not self.all_containers: return
         
-        container = self.all_containers[self.current_container_idx]
-        cog, devs = container.get_cog_stats()
+        self.container = self.all_containers[self.current_container_idx] # [FIX] self.containerを更新
+        cog, devs = self.container.get_cog_stats()
 
         # UI更新
-        tot_w = container.total_weight
-        mx_w = container.max_weight
+        tot_w = self.container.total_weight
+        mx_w = self.container.max_weight
         pct_w = (tot_w / mx_w) * 100
         self.lbl_weight.config(text=f"コンテナ {self.current_container_idx+1}/{len(self.all_containers)} | 重量: {tot_w:,}kg")
         self.weight_progress['value'] = pct_w
