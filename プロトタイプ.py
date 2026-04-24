@@ -753,44 +753,41 @@ class App:
         loaded_count = 0
         name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
         
+        items_to_load = []
         for i, row in df.iterrows():
             if pd.isna(row[0]) or "Container" in str(row[0]) or "種別" in str(row[0]):
                 continue
             
-            # IDによる紐付け (Excelの2列目がID 1, 2, ... 31 となっている)
             matched_key = None
             try:
                 raw_id = int(row[1])
                 test_key = f"CASE_{raw_id:02d}"
-                if test_key in PARTS_MASTER:
-                    matched_key = test_key
-            except:
-                pass
+                if test_key in PARTS_MASTER: matched_key = test_key
+            except: pass
             
-            # IDで見つからなかった場合は名前で探す
             if not matched_key:
                 part_name = str(row[2]).strip()
                 clean_name = part_name.replace(" ", "").replace("　","")
-                if clean_name in name_to_key:
-                    matched_key = name_to_key[clean_name]
-                else:
-                    for m_name, m_key in name_to_key.items():
-                        if clean_name in m_name or m_name in clean_name:
-                            matched_key = m_key
-                            break
-            
+                if clean_name in name_to_key: matched_key = name_to_key[clean_name]
+
             if matched_key:
                 try:
-                    w = int(row[6])
-                    cur = self.qty_vars[matched_key].get()
-                    self.qty_vars[matched_key].set(cur + 1)
-                    self.on_slider_change(matched_key, str(cur + 1), weight=w)
+                    w = int(row[6]) if not pd.isna(row[6]) else 1000
+                    items_to_load.append({'key': matched_key, 'weight': w, 'source_container_id': 1})
                     loaded_count += 1
-                except:
-                    continue
+                except: continue
                     
         self.append_log(f"✅ 合計 {loaded_count} 個のケース（実重量）を読み込みました！", "green")
-        self.run_simulation()
+        
+        # 現在表示している週のデータとして反映
+        if self.current_view == "WEEK" and self.selected_week:
+            self.annual_data[self.selected_week] = {
+                'items': items_to_load,
+                'containers_before': (loaded_count // 20) + 1 
+            }
+            self.run_simulation()
+        else:
+            self.append_log("💡 週次詳細画面で読み込むと、その週のデータとして3D表示に反映されます。")
 
     def clear_all_items(self, run_sim=True):
         for key, var in self.qty_vars.items():
@@ -1198,11 +1195,14 @@ class App:
                             raw_id = int(row[1])
                             test_key = f"CASE_{raw_id:02d}"
                             if test_key in PARTS_MASTER:
-                                weekly_data[current_week]['items'].append({
+                                item_info = {
                                     'key': test_key,
                                     'weight': int(row[6]) if not pd.isna(row[6]) else 1000,
                                     'source_container_id': current_container_id
-                                })
+                                }
+                                weekly_data[current_week]['items'].append(item_info)
+                                # [FIX] 個別読み込み用の一時リストにも追加
+                                items_to_load.append(item_info)
                         except: continue
             return weekly_data
         except Exception as e:
