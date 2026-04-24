@@ -637,26 +637,69 @@ class App:
         return items
 
     def load_manifest_file(self):
-        """個別のマニフェストファイルを読み込む"""
-        file_path = filedialog.askopenfilename(filetypes=[("Excel & CSV files", "*.xlsx *.xls *.csv")])
+        """Excelの全シート（1月〜12月）を一括読み込みし、年間データとして反映する"""
+        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls"), ("CSV files", "*.csv")])
         if not file_path: return
+        
         try:
+            self.append_log(f"📂 ファイルを解析中: {os.path.basename(file_path)}")
+            
             if file_path.endswith('.csv'):
+                # CSVの場合は単一の週として処理（既存ロジック）
                 try: df = pd.read_csv(file_path, encoding='utf-8')
                 except: df = pd.read_csv(file_path, encoding='shift_jis')
-            else: df = pd.read_excel(file_path)
-            
-            items = self._parse_manifest_dataframe(df)
-            if items:
-                if self.selected_node_type == "WEEK" and self.selected_week:
-                    self.annual_data[self.selected_week] = {
+                items = self._parse_manifest_dataframe(df)
+                if items:
+                    target_week = self.selected_week if self.selected_week else 1
+                    self.annual_data[target_week] = {
                         'items': items,
                         'containers_before': (len(items) // 20) + 1 
                     }
-                    self.run_simulation()
-                self.append_log(f"✅ {len(items)} 個の荷物を読み込みました。")
+                    self.append_log(f"✅ CSVデータを Week {target_week} に読み込みました。")
+            else:
+                # Excelの場合は全シートを月ごとに処理
+                xl = pd.ExcelFile(file_path)
+                self.annual_data = {} # データをリセットして一括更新
+                
+                total_items_count = 0
+                for sheet_name in xl.sheet_names:
+                    # シート名から月を特定 (例: "1月" -> 1)
+                    match = re.search(r'(\d+)', sheet_name)
+                    if not match: continue
+                    month = int(match.group(1))
+                    
+                    df = xl.parse(sheet_name)
+                    items = self._parse_manifest_dataframe(df)
+                    
+                    if not items: continue
+                    
+                    # 1ヶ月分の荷物を4週間に均等に分配
+                    chunk_size = (len(items) // 4) + 1
+                    for w_idx in range(4):
+                        global_week = (month - 1) * 4 + w_idx + 1
+                        week_items = items[w_idx * chunk_size : (w_idx + 1) * chunk_size]
+                        if week_items:
+                            self.annual_data[global_week] = {
+                                'items': week_items,
+                                'containers_before': (len(week_items) // 15) + 2 # 現状本数のダミー計算
+                            }
+                            total_items_count += len(week_items)
+                
+                self.append_log(f"✅ 年間マニフェストの読込完了: 計 {total_items_count} 個の荷物を52週分に展開しました。")
+            
+            # 全体統計を再計算してダッシュボードを更新
+            self._update_dashboard_tab()
+            
+            # 最初の週を表示（任意）
+            self.selected_node_type = "WEEK"
+            self.selected_week = 1
+            self.tree.selection_set("W_1")
+            self.tree.see("W_1")
+            self.run_simulation()
+
         except Exception as e:
-            messagebox.showerror("エラー", f"読込失敗: {e}")
+            self.append_log(f"❌ 読込失敗: {str(e)}", Colors.ERROR)
+            messagebox.showerror("エラー", f"ファイル形式が正しくないか、読み込み中にエラーが発生しました:\\n{e}")
 
     def on_month_selected(self, event):
         """月次表示を更新（データは起動時にロード済み）"""
