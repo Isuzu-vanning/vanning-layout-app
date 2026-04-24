@@ -572,8 +572,18 @@ class App:
 
         # アクションボタン
         tk.Button(self.left_panel, text="▶ 最適化を実行", bg=Colors.ACCENT_MAIN, fg="black", font=Fonts.BODY_BOLD, pady=10, command=self.run_simulation).pack(fill=tk.X, pady=(20, 10))
-        tk.Button(self.left_panel, text="📁 マニフェスト読込", bg="#334466", fg="white", font=Fonts.BODY, command=self.load_manifest_file).pack(fill=tk.X)
+        tk.Button(self.left_panel, text="📁 マニフェスト読込", bg="#334466", fg="white", font=Fonts.BODY, command=self.load_manifest_file).pack(fill=tk.X, pady=(0, 20))
 
+        # [NEW] 編集モードトグル
+        self.edit_mode_var = tk.BooleanVar(value=False)
+        self.btn_edit_mode = tk.Checkbutton(self.left_panel, text=" 🔧 マニュアル編集モード", variable=self.edit_mode_var,
+                                           bg=Colors.BG_PANEL, fg=Colors.ACCENT_HOT, selectcolor="black",
+                                           font=Fonts.BODY_BOLD, command=self.toggle_edit_mode)
+        self.btn_edit_mode.pack(fill=tk.X, pady=10)
+
+        # [NEW] 移動指示パネル（初期は非表示）
+        self.reloc_panel = tk.Frame(self.left_panel, bg=Colors.BG_CARD, padx=10, pady=10, highlightthickness=1, highlightbackground=Colors.ACCENT_HOT)
+        
         # 右側：3Dキャンバス
         self.canvas_frame = tk.Frame(main_view, bg=Colors.BG_MAIN)
         self.canvas_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
@@ -896,6 +906,7 @@ class App:
             
             poly = Poly3DCollection(verts, facecolors=face_color, linewidths=0.5, edgecolors='black', alpha=0.9, zorder=1)
             poly._item_info = f"{item.name}\n元コンテナ: {item.source_container_id}\n重量: {item.weight:,}kg"
+            poly._item_ref = item # アイテム本体への参照を保持
             poly.set_picker(True)
             self.ax.add_collection3d(poly)
 
@@ -928,10 +939,69 @@ class App:
         canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame); canvas.draw()
         canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
     
+    def toggle_edit_mode(self):
+        if self.edit_mode_var.get():
+            self.append_log("🔧 編集モード：荷物をクリックして移動先を選択してください。", Colors.ACCENT_HOT)
+        else:
+            self.reloc_panel.pack_forget()
+            self.append_log("✅ 編集モードを終了しました。")
+
     def on_pick(self, event):
-        info = getattr(event.artist, '_item_info', None)
-        if info:
-                messagebox.showinfo("貨物詳細", info)
+        """3Dアイテムクリック時の処理"""
+        artist = event.artist
+        if hasattr(artist, '_item_info'):
+            if hasattr(self, 'edit_mode_var') and self.edit_mode_var.get() and hasattr(artist, '_item_ref'):
+                self.show_relocation_ui(artist._item_ref)
+            else:
+                self.append_log(f"📦 選択中: {artist._item_info}")
+
+    def show_relocation_ui(self, item):
+        """移動指示パネルの表示"""
+        for child in self.reloc_panel.winfo_children(): child.destroy()
+        self.reloc_panel.pack(fill=tk.X, pady=10)
+        
+        tk.Label(self.reloc_panel, text="荷物の移動指示", bg=Colors.BG_CARD, fg=Colors.ACCENT_HOT, font=Fonts.SMALL_BOLD).pack(anchor="w")
+        tk.Label(self.reloc_panel, text=f"WHAT: {item.name}", bg=Colors.BG_CARD, fg="white", font=Fonts.SMALL).pack(anchor="w")
+        tk.Label(self.reloc_panel, text=f"from: Container {self.current_container_idx+1}", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
+        
+        to_frame = tk.Frame(self.reloc_panel, bg=Colors.BG_CARD)
+        to_frame.pack(fill=tk.X, pady=5)
+        tk.Label(to_frame, text="to:", bg=Colors.BG_CARD, fg="white", font=Fonts.SMALL).pack(side=tk.LEFT)
+        
+        # 移動先コンテナ候補
+        options = [f"Container {i+1}" for i in range(len(self.all_containers))]
+        to_var = tk.StringVar(value=options[0])
+        combo = ttk.Combobox(to_frame, textvariable=to_var, values=options, state="readonly", width=12)
+        combo.pack(side=tk.LEFT, padx=5)
+        
+        def do_relocate():
+            to_idx = options.index(to_var.get())
+            if to_idx == self.current_container_idx:
+                self.append_log("⚠️ 同じコンテナには移動できません。", Colors.WARNING)
+                return
+            
+            # 実移動処理
+            source_container = self.all_containers[self.current_container_idx]
+            target_container = self.all_containers[to_idx]
+            
+            # 移動元から削除
+            source_container.items.remove(item)
+            # 移動先に追加して再計算
+            temp_items = target_container.items + [item]
+            target_container.load_items(temp_items)
+            
+            if item in target_container.unloaded_items:
+                self.append_log(f"❌ Container {to_idx+1} には入りませんでした（容量不足）。", Colors.ERROR)
+                # 元に戻す
+                target_container.items.remove(item)
+                source_container.load_items(source_container.items + [item])
+            else:
+                self.append_log(f"✅ {item.name} を Container {to_idx+1} へ移動しました！", Colors.SUCCESS)
+                # 移動元も再パズル
+                source_container.load_items(source_container.items)
+                self.update_3d_display()
+
+        tk.Button(self.reloc_panel, text="移動を実行", bg=Colors.ACCENT_HOT, fg="white", font=Fonts.SMALL_BOLD, command=do_relocate).pack(fill=tk.X, pady=5)
 
     def rotate_view(self, angle):
         if self.ax: self.ax.azim += angle; self.fig.canvas.draw_idle()
