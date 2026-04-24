@@ -516,9 +516,12 @@ class App:
         fig.patch.set_facecolor(Colors.BG_CARD)
         ax.set_facecolor(Colors.BG_CARD)
         
-        weeks = list(range(1, 53))
-        ax.bar(weeks, stats['weekly_before'], color=Colors.TEXT_DIM, alpha=0.3, label="現状")
-        ax.bar(weeks, stats['weekly_after'], color=Colors.ACCENT_MAIN, alpha=0.8, label="最適化")
+        weeks = np.array(range(1, 53))
+        width = 0.35
+        
+        # [FIX] 棒グラフを並べて表示するように調整
+        ax.bar(weeks - width/2, stats['weekly_before'], width, color=Colors.TEXT_DIM, alpha=0.5, label="現状")
+        ax.bar(weeks + width/2, stats['weekly_after'], width, color=Colors.ACCENT_MAIN, alpha=0.9, label="最適化")
         
         ax.set_title("週次コンテナ本数の推移 (Before vs After)", color="white", fontsize=10)
         ax.tick_params(colors=Colors.TEXT_DIM, labelsize=8)
@@ -1124,12 +1127,16 @@ class App:
                             raw_id = int(row[1])
                             test_key = f"CASE_{raw_id:02d}"
                             if test_key in PARTS_MASTER:
-                                item_info = {
-                                    'key': test_key,
-                                    'weight': int(row[6]) if not pd.isna(row[6]) else 1000,
-                                    'source_container_id': current_container_id
-                                }
-                                weekly_data[current_week]['items'].append(item_info)
+                                qty = int(row[6]) if not pd.isna(row[6]) else 1
+                                # 実際の重量はマスタから取得（ファイルに重量列がないため）
+                                weight = PARTS_MASTER[test_key]['weight']
+                                for _ in range(qty):
+                                    item_info = {
+                                        'key': test_key,
+                                        'weight': weight,
+                                        'source_container_id': current_container_id
+                                    }
+                                    weekly_data[current_week]['items'].append(item_info)
                         except: continue
             return weekly_data
         except Exception as e:
