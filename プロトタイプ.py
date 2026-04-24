@@ -396,7 +396,6 @@ class App:
         self.selected_week = week
         self.render_view()
 
-    # --- Step 1: 年次ダッシュボード ---
     def render_annual_dashboard(self):
         header = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
         header.pack(fill=tk.X, pady=(0, 20))
@@ -407,9 +406,15 @@ class App:
         summary_frame = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
         summary_frame.pack(fill=tk.X, pady=(0, 30))
         
-        self.create_metric_card_small(summary_frame, "年間削減数", f"{stats['saved_containers']}本", Colors.SUCCESS)
-        self.create_metric_card_small(summary_frame, "推定削減額", f"¥{stats['cost_savings']/10000:,.0f}万円", Colors.ACCENT_MAIN)
-        
+        self.create_metric_card_small(summary_frame, "年間削減数", f"{stats['saved_containers']}本", Colors.SUCCESS, subtitle=f"({stats['total_before']}本 → {stats['total_after']}本)")
+        self.create_metric_card_small(summary_frame, "推定削減額", f"¥{stats['cost_savings']/10000:,.0f}万円", Colors.ACCENT_MAIN, subtitle=f"削減率: {stats['reduction_rate']:.1f}%")
+        self.create_metric_card_small(summary_frame, "平均充填率", f"{stats['efficiency_after']:.1f}%", Colors.WARNING, subtitle=f"現状: {stats['efficiency_before']:.1f}%")
+
+        # [NEW] 年間推移グラフ
+        chart_frame = tk.Frame(self.content_frame, bg=Colors.BG_CARD, padx=15, pady=15)
+        chart_frame.pack(fill=tk.X, pady=(0, 30))
+        self._render_trend_chart(chart_frame, stats)
+
         # タイルグリッド
         grid_frame = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
         grid_frame.pack(fill=tk.BOTH, expand=True)
@@ -417,82 +422,152 @@ class App:
         for i in range(12):
             month_idx = i + 1
             row, col = i // 4, i % 4
-            m_data = self.annual_data.get(month_idx, {'containers_before': 0})
+            m_stats = self._get_month_stats(month_idx, stats)
             
             card = tk.Frame(grid_frame, bg=Colors.BG_CARD, highlightthickness=1, highlightbackground=Colors.BG_PANEL, padx=15, pady=15, cursor="hand2")
             card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
             grid_frame.grid_columnconfigure(col, weight=1)
             
             tk.Label(card, text=f"{month_idx}月", bg=Colors.BG_CARD, fg=Colors.ACCENT_MAIN, font=Fonts.HEADER).pack(anchor="w")
-            tk.Label(card, text=f"輸送量: {len(m_data.get('items', []))}荷物", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
+            tk.Label(card, text=f"輸送量: {m_stats['items_count']}荷物", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
+            tk.Label(card, text=f"本数: {m_stats['before']} → {m_stats['after']}本", bg=Colors.BG_CARD, fg="white", font=Fonts.BODY_BOLD).pack(anchor="w", pady=5)
             
-            # 充填率メーター（簡易版）
-            tk.Label(card, text="削減ポテンシャル: 高", bg=Colors.BG_CARD, fg=Colors.WARNING, font=Fonts.SMALL).pack(anchor="w", pady=(5,0))
-            
+            # 進捗バー
+            bar_bg = tk.Frame(card, bg="#222222", height=4)
+            bar_bg.pack(fill=tk.X, pady=(5,0))
+            if m_stats['before'] > 0:
+                pct = (m_stats['after'] / m_stats['before']) * 100
+                tk.Frame(bar_bg, bg=Colors.SUCCESS, height=4, width=int(1.8 * pct)).pack(side=tk.LEFT)
+
             card.bind("<Button-1>", lambda e, m=month_idx: self.go_to_month(m))
             for child in card.winfo_children():
                 child.bind("<Button-1>", lambda e, m=month_idx: self.go_to_month(m))
 
-    # --- Step 1-2: 月次グリッドビュー (ZOZOTOWN風) ---
+    def _render_trend_chart(self, parent, stats):
+        fig, ax = plt.subplots(figsize=(12, 3), dpi=100)
+        fig.patch.set_facecolor(Colors.BG_CARD)
+        ax.set_facecolor(Colors.BG_CARD)
+        
+        weeks = list(range(1, 53))
+        ax.bar(weeks, stats['weekly_before'], color=Colors.TEXT_DIM, alpha=0.3, label="現状")
+        ax.bar(weeks, stats['weekly_after'], color=Colors.ACCENT_MAIN, alpha=0.8, label="最適化")
+        
+        ax.set_title("週次コンテナ本数の推移 (Before vs After)", color="white", fontsize=10)
+        ax.tick_params(colors=Colors.TEXT_DIM, labelsize=8)
+        ax.legend(facecolor=Colors.BG_CARD, edgecolor=Colors.TEXT_DIM, labelcolor="white", fontsize=8)
+        ax.grid(axis='y', alpha=0.1)
+        
+        canvas = FigureCanvasTkAgg(fig, master=parent)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH)
+
+    def _get_month_stats(self, month, stats):
+        # 年間の週次データから該当月分を抽出
+        start_w = (month - 1) * 4 + 1
+        end_w = month * 4 + 1
+        items_sum = 0
+        for w in range(start_w, end_w):
+            items_sum += len(self.annual_data.get(w, {}).get('items', []))
+        
+        return {
+            'before': sum(stats['weekly_before'][start_w-1:end_w-1]),
+            'after': sum(stats['weekly_after'][start_w-1:end_w-1]),
+            'items_count': items_sum
+        }
+
+    # --- Step 1-2: 月次グリッドビュー ---
     def render_monthly_grid(self):
         header = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
         header.pack(fill=tk.X, pady=(0, 20))
-        tk.Button(header, text="← 戻る", command=self.go_to_year, bg=Colors.BG_CARD, fg="white", relief="flat").pack(side=tk.LEFT, padx=(0, 20))
-        tk.Label(header, text=f"{self.selected_month}月 輸送計画 (週次一覧)", bg=Colors.BG_MAIN, fg="white", font=("Meiryo", 18, "bold")).pack(side=tk.LEFT)
+        tk.Button(header, text="← 戻る", command=self.go_to_year, bg=Colors.BG_CARD, fg="white", relief="flat", padx=10).pack(side=tk.LEFT, padx=(0, 20))
+        tk.Label(header, text=f"{self.selected_month}月 輸送効率分析", bg=Colors.BG_MAIN, fg="white", font=("Meiryo", 18, "bold")).pack(side=tk.LEFT)
 
         grid_frame = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
         grid_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 4週間分をカード表示
-        for week_idx in range(1, 5):
-            # 実際は月内の週番号を計算
-            col = (week_idx - 1) % 4
+        start_w = (self.selected_month - 1) * 4 + 1
+        for i in range(4):
+            week_idx = start_w + i
+            col = i % 4
+            
+            w_data = self.annual_data.get(week_idx, {'items': [], 'containers_before': 0})
+            items_count = len(w_data['items'])
+            
             card = tk.Frame(grid_frame, bg=Colors.BG_CARD, highlightthickness=1, highlightbackground=Colors.ACCENT_MAIN, padx=20, pady=20, cursor="hand2")
             card.grid(row=0, column=col, padx=15, pady=15, sticky="nsew")
             grid_frame.grid_columnconfigure(col, weight=1)
 
-            tk.Label(card, text=f"第 {week_idx} 週", bg=Colors.BG_CARD, fg="white", font=Fonts.HEADER).pack(anchor="w")
-            tk.Label(card, text="-----------------", bg=Colors.BG_CARD, fg=Colors.BG_PANEL).pack(fill=tk.X)
+            tk.Label(card, text=f"Week {week_idx}", bg=Colors.BG_CARD, fg="white", font=Fonts.HEADER).pack(anchor="w")
+            tk.Label(card, text=f"積載荷物: {items_count}件", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w", pady=(5, 10))
             
-            # 仮の統計
-            tk.Label(card, text="現状: 10本", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.BODY).pack(anchor="w")
-            tk.Label(card, text="最適化後: 7本", bg=Colors.BG_CARD, fg=Colors.SUCCESS, font=Fonts.BODY_BOLD).pack(anchor="w")
+            # 対比表示
+            stats_row = tk.Frame(card, bg=Colors.BG_CARD)
+            stats_row.pack(fill=tk.X, pady=10)
             
-            tk.Button(card, text="詳細レイアウトを見る", bg=Colors.ACCENT_MAIN, fg="black", font=Fonts.SMALL, 
+            def mini_stat(parent, label, val, color):
+                f = tk.Frame(parent, bg=Colors.BG_CARD)
+                f.pack(side=tk.LEFT, expand=True)
+                tk.Label(f, text=label, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack()
+                tk.Label(f, text=val, bg=Colors.BG_CARD, fg=color, font=Fonts.BODY_BOLD).pack()
+
+            before_val = w_data['containers_before']
+            # 仮の最適化計算
+            after_val = max(1, int(before_val * 0.75)) if before_val > 0 else 0
+            
+            mini_stat(stats_row, "現状", f"{before_val}本", "white")
+            tk.Label(stats_row, text="→", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM).pack(side=tk.LEFT)
+            mini_stat(stats_row, "最適化", f"{after_val}本", Colors.SUCCESS)
+            
+            tk.Button(card, text="レイアウト詳細", bg="#334466", fg="white", font=Fonts.SMALL, 
                       command=lambda w=week_idx: self.go_to_week(w)).pack(fill=tk.X, pady=(15, 0))
 
-    def create_metric_card_small(self, parent, title, value, color):
-        card = tk.Frame(parent, bg=Colors.BG_CARD, padx=15, pady=10, highlightthickness=1, highlightbackground=color)
-        card.pack(side=tk.LEFT, padx=10)
+    def create_metric_card_small(self, parent, title, value, color, subtitle=""):
+        card = tk.Frame(parent, bg=Colors.BG_CARD, padx=20, pady=15, highlightthickness=1, highlightbackground=color)
+        card.pack(side=tk.LEFT, padx=10, expand=True, fill=tk.BOTH)
         tk.Label(card, text=title, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
-        tk.Label(card, text=value, bg=Colors.BG_CARD, fg=color, font=Fonts.HEADER).pack(anchor="w")
+        tk.Label(card, text=value, bg=Colors.BG_CARD, fg=color, font=("Impact", 24)).pack(anchor="w")
+        if subtitle:
+            tk.Label(card, text=subtitle, bg=Colors.BG_CARD, fg="white", font=Fonts.SMALL).pack(anchor="w")
 
     # --- Step 1-3: 週次3D詳細ビュー ---
     def render_weekly_detail(self):
         """現在の3Dメインビュー"""
         # パンくずリスト
         nav = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
-        nav.pack(fill=tk.X, pady=(0, 10))
-        tk.Button(nav, text="月次一覧へ", command=lambda: self.go_to_month(self.selected_month), bg=Colors.BG_PANEL, fg="white", relief="flat").pack(side=tk.LEFT)
+        nav.pack(fill=tk.X, pady=(0, 20))
+        tk.Button(nav, text="← 月次一覧へ戻る", command=lambda: self.go_to_month(self.selected_month), bg=Colors.BG_CARD, fg="white", relief="flat", padx=10).pack(side=tk.LEFT)
+        tk.Label(nav, text=f"|  Week {self.selected_week} 詳細レイアウト", bg=Colors.BG_MAIN, fg=Colors.TEXT_DIM, font=Fonts.BODY).pack(side=tk.LEFT, padx=15)
         
         # 3D描画エリア
         main_view = tk.Frame(self.content_frame, bg=Colors.BG_MAIN)
         main_view.pack(fill=tk.BOTH, expand=True)
         
         # 左側：情報パネル
-        self.info_panel = tk.Frame(main_view, width=300, bg=Colors.BG_PANEL, padx=15, pady=15)
-        self.info_panel.pack(side=tk.LEFT, fill=tk.Y)
-        self.info_panel.pack_propagate(False)
+        self.left_panel = tk.Frame(main_view, width=350, bg=Colors.BG_PANEL, padx=20, pady=20)
+        self.left_panel.pack(side=tk.LEFT, fill=tk.Y)
+        self.left_panel.pack_propagate(False)
         
-        tk.Label(self.info_panel, text=f"{self.selected_month}月 第{self.selected_week}週", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, font=Fonts.HEADER).pack(anchor="w")
-        self.lbl_weight = tk.Label(self.info_panel, text="総重量: 0kg", bg=Colors.BG_PANEL, fg="white", font=Fonts.BODY)
-        self.lbl_weight.pack(anchor="w", pady=10)
+        tk.Label(self.left_panel, text="CONTAINER STATUS", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, font=Fonts.BODY_BOLD).pack(anchor="w")
         
+        self.lbl_weight = tk.Label(self.left_panel, text="総重量: 0 / 15,000 kg", bg=Colors.BG_PANEL, fg="white", font=Fonts.HEADER)
+        self.lbl_weight.pack(anchor="w", pady=(10, 5))
+        
+        self.weight_progress = ttk.Progressbar(self.left_panel, orient="horizontal", mode="determinate", length=300)
+        self.weight_progress.pack(fill=tk.X, pady=(0, 20))
+        
+        # 操作ログ
+        tk.Label(self.left_panel, text="LOG", bg=Colors.BG_PANEL, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
+        self.log_text = st.ScrolledText(self.left_panel, height=10, bg="black", fg=Colors.SUCCESS, font=Fonts.SMALL, borderwidth=0)
+        self.log_text.pack(fill=tk.X, pady=5)
+
+        # アクションボタン
+        tk.Button(self.left_panel, text="▶ 最適化を実行", bg=Colors.ACCENT_MAIN, fg="black", font=Fonts.BODY_BOLD, pady=10, command=self.run_simulation).pack(fill=tk.X, pady=(20, 10))
+        tk.Button(self.left_panel, text="📁 マニフェスト読込", bg="#334466", fg="white", font=Fonts.BODY, command=self.load_manifest_file).pack(fill=tk.X)
+
         # 右側：3Dキャンバス
         self.canvas_frame = tk.Frame(main_view, bg=Colors.BG_MAIN)
         self.canvas_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
-        # 初期描画（仮）
         self.run_simulation()
 
     # --- 以下、既存のメソッドを調整 ---
@@ -1012,9 +1087,14 @@ class App:
             
         total_before = sum(stats['weekly_before'])
         total_after = sum(stats['weekly_after'])
+        stats['total_before'] = total_before
+        stats['total_after'] = total_after
         stats['saved_containers'] = total_before - total_after
         stats['cost_savings'] = stats['saved_containers'] * 350000 
-        stats['efficiency_gain'] = (1/0.7 - 1/0.95) * 100 * 0.5 
+        
+        stats['reduction_rate'] = (stats['saved_containers'] / total_before * 100) if total_before > 0 else 0
+        stats['efficiency_before'] = 70.0 # 仮の現状平均
+        stats['efficiency_after'] = (total_before / total_after * 70.0) if total_after > 0 else 0
         
         return stats
 
