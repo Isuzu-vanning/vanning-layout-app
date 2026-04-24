@@ -425,6 +425,9 @@ class App:
         self.lbl_weight = tk.Label(preview_header, text="総重量: --- / 15,000 kg", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, font=Fonts.BODY_BOLD)
         self.lbl_weight.pack(side=tk.RIGHT)
         
+        self.weight_progress = ttk.Progressbar(self.right_panel, orient="horizontal", mode="determinate", length=300)
+        self.weight_progress.pack(fill=tk.X, padx=20, pady=(0, 10))
+        
         btn_frame = tk.Frame(self.right_panel, bg=Colors.BG_MAIN, pady=10)
         btn_frame.pack(fill=tk.X)
         tk.Button(btn_frame, text="▶ 最適化を実行", bg=Colors.ACCENT_MAIN, fg="black", font=Fonts.BODY_BOLD, command=self.run_simulation, width=15).pack(side=tk.LEFT, padx=5)
