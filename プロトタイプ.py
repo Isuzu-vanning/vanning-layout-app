@@ -13,6 +13,7 @@ from collections import Counter
 import pandas as pd
 import ast
 import re
+import json
 
 # --- 1. フォント設定・カラーパレット ---
 def get_jp_font_family():
@@ -25,16 +26,18 @@ FONT_FAMILY = get_jp_font_family()
 plt.rcParams['font.family'] = FONT_FAMILY
 
 class Colors:
-    BG_MAIN = "#0B1221"
-    BG_PANEL = "#152036"
-    BG_CARD = "#1E2A45"
-    ACCENT_MAIN = "#00F0FF"
-    ACCENT_HOT = "#FF0099"
-    TEXT_MAIN = "#E0E6ED"
-    TEXT_DIM = "#94A3B8"
-    SUCCESS = "#00FF9D"
-    WARNING = "#FFB800"
-    ERROR = "#FF4444"
+    BG_MAIN     = "#6F8FA3"   # 全体背景
+    BG_PANEL    = "#7C9CAF"   # パネル
+    BG_CARD     = "#89A9BA"   # カード
+    ACCENT_MAIN = "#E8D5A2"   # ベージュ（主ボタン）
+    ACCENT_HOT  = "#D8C18A"
+    
+    TEXT_MAIN   = "#FFFFFF"
+    TEXT_DIM    = "#E6EEF2"
+
+    SUCCESS     = "#BDE5C8"
+    WARNING     = "#FFD27F"
+    ERROR       = "#FF8C8C"
 
 class Fonts:
     HEADER = ("Meiryo", 14, "bold")
@@ -350,7 +353,8 @@ class App:
         self.fig = None
         self.ax = None
         self.annual_data = None 
-        self.is_optimized = False # [NEW] 最適化済みフラグ
+        self.is_optimized = False 
+        self.auto_optimize_var = tk.BooleanVar(value=True) # [NEW] 自動最適化フラグ
         
         # メインレイアウト構築
         self._build_notebook_layout()
@@ -411,11 +415,43 @@ class App:
         self.tree.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         
-        tk.Button(self.left_panel, text="📁 CSV読込", bg="#334466", fg="white", font=Fonts.BODY_BOLD, command=self.load_manifest_file).pack(fill=tk.X, padx=15, pady=15)
+        tk.Button(self.left_panel, text="📁 CSV/Excel読込", bg="#334466", fg="white", font=Fonts.BODY_BOLD, command=self.load_manifest_file).pack(fill=tk.X, padx=15, pady=10)
+        
+        # [NEW] 自動最適化のチェックボックス
+        tk.Checkbutton(self.left_panel, text="選択時に自動最適化", variable=self.auto_optimize_var, 
+                       bg=Colors.BG_PANEL, fg="white", selectcolor="black", activebackground=Colors.BG_PANEL,
+                       font=Fonts.SMALL).pack(anchor="w", padx=15)
 
         # --- 右側（3Dプレビュー・画面の80%占有） ---
         self.right_panel = tk.Frame(self.workspace_paned, bg=Colors.BG_MAIN)
         self.workspace_paned.add(self.right_panel, weight=4) # 80%占有
+        
+        # KPIエリア
+        self.kpi_frame = tk.Frame(
+            self.right_panel,
+            bg=Colors.BG_CARD,
+            padx=20,
+            pady=15
+        )
+        self.kpi_frame.pack(fill=tk.X, padx=10, pady=(10,5))
+
+        self.lbl_kpi_main = tk.Label(
+            self.kpi_frame,
+            text="🎯 削減：-- 本",
+            bg=Colors.BG_CARD,
+            fg=Colors.TEXT_MAIN,
+            font=("Meiryo", 22, "bold")
+        )
+        self.lbl_kpi_main.pack(anchor="w")
+
+        self.lbl_kpi_sub = tk.Label(
+            self.kpi_frame,
+            text="充填率：-- %",
+            bg=Colors.BG_CARD,
+            fg=Colors.TEXT_DIM,
+            font=("Meiryo", 10)
+        )
+        self.lbl_kpi_sub.pack(anchor="w")
         
         preview_header = tk.Frame(self.right_panel, bg=Colors.BG_PANEL, padx=20, pady=15)
         preview_header.pack(fill=tk.X)
@@ -479,8 +515,10 @@ class App:
         self._update_dashboard_tab()
         
         if self.selected_node_type == "WEEK":
-            self.is_optimized = False # 選択を変えたら未最適化状態に戻す
             self._update_comparison_display()
+            # [NEW] 自動最適化が有効でデータがあれば実行
+            if self.auto_optimize_var.get() and self.selected_week in self.annual_data and self.annual_data[self.selected_week]['items']:
+                self.run_simulation()
         else:
             for w in self.canvas_frame.winfo_children(): w.destroy()
             self.lbl_weight.config(text="総重量: --- / 15,000 kg")
@@ -641,74 +679,111 @@ class App:
         return items
 
     def load_manifest_file(self):
-        """Excelの全シート（1月〜12月）を一括読み込みし、年間データとして反映する"""
-        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls"), ("CSV files", "*.csv")])
-        if not file_path: return
+        """Excel/CSVの読込。複数ファイル選択に対応し、ファイル名から月を自動判定する。"""
+        file_paths = filedialog.askopenfilenames(filetypes=[("Excel/CSV files", "*.xlsx *.xls *.csv")])
+        if not file_paths: return
         
         try:
-            self.append_log(f"📂 ファイルを解析中: {os.path.basename(file_path)}")
-            
-            if file_path.endswith('.csv'):
-                # CSVの場合は単一の週として処理（既存ロジック）
-                try: df = pd.read_csv(file_path, encoding='utf-8')
-                except: df = pd.read_csv(file_path, encoding='shift_jis')
-                items = self._parse_manifest_dataframe(df)
-                if items:
-                    target_week = self.selected_week if self.selected_week else 1
-                    self.annual_data[target_week] = {
-                        'items': items,
-                        'containers_before': (len(items) // 20) + 1 
-                    }
-                    self.append_log(f"✅ CSVデータを Week {target_week} に読み込みました。")
-            else:
-                # Excelの場合は全シートを月ごとに処理
-                xl = pd.ExcelFile(file_path)
-                self.annual_data = {} # データをリセットして一括更新
+            for file_path in file_paths:
+                self.append_log(f"📂 ファイルを解析中: {os.path.basename(file_path)}")
                 
-                total_items_count = 0
-                for sheet_name in xl.sheet_names:
-                    # シート名から月を特定 (例: "1月" -> 1)
-                    match = re.search(r'(\d+)', sheet_name)
-                    if not match: continue
-                    month = int(match.group(1))
+                if file_path.endswith('.csv'):
+                    # CSVの場合は月を自動判定
+                    try: df = pd.read_csv(file_path, encoding='utf-8')
+                    except: df = pd.read_csv(file_path, encoding='shift_jis')
                     
-                    df = xl.parse(sheet_name)
                     items = self._parse_manifest_dataframe(df)
+                    if items:
+                        # ファイル名から数字（月）を探す
+                        fname = os.path.basename(file_path)
+                        month_match = re.search(r'(\d+)', fname)
+                        
+                        if month_match:
+                            month = int(month_match.group(1))
+                            if 1 <= month <= 12:
+                                target_week = (month - 1) * 4 + 1
+                                self.append_log(f"💡 ファイル名から {month}月 (Week {target_week}) と判定しました。")
+                            else:
+                                target_week = self.selected_week if self.selected_week else 1
+                        else:
+                            target_week = self.selected_week if self.selected_week else 1
+                        
+                        self.annual_data[target_week] = {
+                            'items': items,
+                            'containers_before': (len(items) // 15) + 1 
+                        }
+                        self.append_log(f"✅ CSVデータを Week {target_week} に読み込みました。")
+                else:
+                    # Excelの場合は全シートを月ごとに処理
+                    xl = pd.ExcelFile(file_path)
+                    # Excel一括ロードの場合は既存データをリセットするか選ばせる（ここでは簡略化のため追記）
                     
-                    if not items: continue
+                    total_items_count = 0
+                    for sheet_name in xl.sheet_names:
+                        match = re.search(r'(\d+)', sheet_name)
+                        if not match: continue
+                        month = int(match.group(1))
+                        
+                        df = xl.parse(sheet_name)
+                        items = self._parse_manifest_dataframe(df)
+                        if not items: continue
+                        
+                        chunk_size = (len(items) // 4) + 1
+                        for w_idx in range(4):
+                            global_week = (month - 1) * 4 + w_idx + 1
+                            week_items = items[w_idx * chunk_size : (w_idx + 1) * chunk_size]
+                            if week_items:
+                                self.annual_data[global_week] = {
+                                    'items': week_items,
+                                    'containers_before': (len(week_items) // 15) + 2
+                                }
+                                total_items_count += len(week_items)
                     
-                    # 1ヶ月分の荷物を4週間に均等に分配
-                    chunk_size = (len(items) // 4) + 1
-                    for w_idx in range(4):
-                        global_week = (month - 1) * 4 + w_idx + 1
-                        week_items = items[w_idx * chunk_size : (w_idx + 1) * chunk_size]
-                        if week_items:
-                            self.annual_data[global_week] = {
-                                'items': week_items,
-                                'containers_before': (len(week_items) // 15) + 2 # 現状本数のダミー計算
-                            }
-                            total_items_count += len(week_items)
-                
-                self.append_log(f"✅ 年間マニフェストの読込完了: 計 {total_items_count} 個の荷物を52週分に展開しました。")
+                    self.append_log(f"✅ エクセルから計 {total_items_count} 個の荷物を読込完了。")
+            
+            # セッションを保存
+            self.save_session_data()
             
             # 状態をリセット
             self.is_optimized = False
-            
-            # 全体統計を再計算してダッシュボードを更新
             self._update_dashboard_tab()
             
-            # 最初の週を選択（ただしシミュレーションは実行しない）
-            self.selected_node_type = "WEEK"
-            self.selected_week = 1
-            self.tree.selection_set("W_1")
-            self.tree.see("W_1")
+            # ロードした週（または1週目）を表示
+            if self.selected_node_type != "WEEK":
+                self.selected_node_type = "WEEK"
+                self.selected_week = 1
+                self.tree.selection_set("W_1")
             
-            # サマリーのみ更新
             self._update_comparison_display()
 
         except Exception as e:
             self.append_log(f"❌ 読込失敗: {str(e)}", Colors.ERROR)
-            messagebox.showerror("エラー", f"ファイル形式が正しくないか、読み込み中にエラーが発生しました:\\n{e}")
+            messagebox.showerror("エラー", f"読込中にエラーが発生しました:\n{e}")
+
+    def save_session_data(self):
+        """現在の荷物データをファイルに保存する"""
+        try:
+            cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vanning_session.json")
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(self.annual_data, f, ensure_ascii=False, indent=2)
+            self.append_log("💾 セッションデータを保存しました。")
+        except Exception as e:
+            print(f"Failed to save session: {e}")
+
+    def load_session_data(self):
+        """保存されたセッションデータを読み込む"""
+        try:
+            cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vanning_session.json")
+            if os.path.exists(cache_path):
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                # JSONはキーが文字列になるので数値に戻す
+                self.annual_data = {int(k): v for k, v in data.items()}
+                self.append_log("📂 前回のセッションデータを復元しました。")
+                return True
+        except Exception as e:
+            print(f"Failed to load session: {e}")
+        return False
 
     def on_month_selected(self, event):
         """月次表示を更新（データは起動時にロード済み）"""
@@ -773,6 +848,11 @@ class App:
             diff = before_cnt - after_cnt
             status_text = f"【 Week {self.selected_week} 】 最適化後: {before_cnt}本 ➡ {after_cnt}本 (削減: {diff}本)"
             self.lbl_preview_title.config(text=status_text, fg=Colors.ACCENT_MAIN)
+            
+            self.lbl_kpi_main.config(text=f"🎯 削減：{diff} 本")
+            if after_cnt > 0:
+                fill = int((before_cnt / after_cnt) * 62)
+                self.lbl_kpi_sub.config(text=f"平均効率：{fill}%")
         else:
             status_text = f"【 Week {self.selected_week} 】 現状: {before_cnt}本  ▶ 最適化を実行してください"
             self.lbl_preview_title.config(text=status_text, fg="white")
@@ -798,20 +878,36 @@ class App:
         self._render_container_selector()
 
     def _render_container_selector(self):
-        """複数コンテナの切替用サムネイル風ボタン"""
-        if hasattr(self, 'selector_frame'): self.selector_frame.destroy()
-        self.selector_frame = tk.Frame(self.canvas_frame, bg="black")
-        self.selector_frame.place(relx=0.5, rely=0.95, anchor="s")
-        
-        # [NEW] コンテナ切替の説明ラベルを追加
-        if hasattr(self, 'selector_label'): self.selector_label.destroy()
-        self.selector_label = tk.Label(self.canvas_frame, text="コンテナ切替:", bg="black", fg=Colors.TEXT_DIM, font=Fonts.SMALL)
-        self.selector_label.place(relx=0.5, rely=0.97, anchor="s", x=-150) # ボタンの左側に配置
-        
-        for i in range(len(self.all_containers)):
-            btn_color = Colors.ACCENT_MAIN if i == self.current_container_idx else Colors.BG_CARD
-            tk.Button(self.selector_frame, text=f"C{i+1}", bg=btn_color, fg="black" if i==self.current_container_idx else "white",
-                      command=lambda idx=i: self.set_active_container(idx), relief="flat", padx=10).pack(side=tk.LEFT, padx=2)
+        if hasattr(self, 'selector_frame'):
+            self.selector_frame.destroy()
+
+        self.selector_frame = tk.Frame(
+            self.canvas_frame,
+            bg=Colors.BG_MAIN
+        )
+        self.selector_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=8)
+
+        for i, c in enumerate(self.all_containers):
+
+            active = i == self.current_container_idx
+
+            bg = Colors.ACCENT_MAIN if active else Colors.BG_CARD
+            fg = "black" if active else "white"
+
+            pct = int((c.total_weight / c.max_weight) * 100)
+
+            card = tk.Button(
+                self.selector_frame,
+                text=f"C{i+1}\n{pct}%",
+                bg=bg,
+                fg=fg,
+                relief="flat",
+                width=8,
+                height=3,
+                font=("Meiryo", 9, "bold"),
+                command=lambda idx=i: self.set_active_container(idx)
+            )
+            card.pack(side=tk.LEFT, padx=5)
 
     def set_active_container(self, idx):
         self.current_container_idx = idx
@@ -1092,10 +1188,14 @@ class App:
                  justify=tk.LEFT, font=("Meiryo", 9), wraplength=1000).pack(pady=20)
 
     def generate_random_annual_data(self):
-        """ランダムな1年分のデータを生成"""
+        """保存データがあれば読み込み、なければランダムまたはExcelから生成"""
         if self.annual_data is not None: return
         
-        # 実際のファイルがあるか確認
+        # 1. 保存されたセッションを優先
+        if self.load_session_data():
+            return
+
+        # 2. 実際のExcelファイルがあれば読み込み
         actual = self.load_actual_annual_data()
         if actual:
             self.annual_data = actual
