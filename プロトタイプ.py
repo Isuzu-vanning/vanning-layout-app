@@ -365,7 +365,7 @@ class App:
         self.ax = None
         self.annual_data = None 
         self.is_optimized = False 
-        self.auto_optimize_var = tk.BooleanVar(value=True) # [NEW] 自動最適化フラグ
+        self.auto_optimize_var = tk.BooleanVar(value=False) # [FIX] 自動最適化はデフォルトOFFにし、まずは現状（Before）を確認させる
         
         # メインレイアウト構築
         self._build_notebook_layout()
@@ -690,10 +690,14 @@ class App:
         self._update_dashboard_tab()
         
         if self.selected_node_type == "WEEK":
-            self._update_comparison_display()
-            # [NEW] 自動最適化が有効でデータがあれば実行
-            if self.auto_optimize_var.get() and self.selected_week in self.annual_data and self.annual_data[self.selected_week]['items']:
-                self.run_simulation()
+            # [NEW] データがあればBeforeまたはAfterを表示
+            if self.selected_week in self.annual_data and self.annual_data[self.selected_week]['items']:
+                if self.auto_optimize_var.get():
+                    self.run_simulation(mode="after")
+                else:
+                    self.run_simulation(mode="before")
+            else:
+                self._update_comparison_display()
         else:
             for w in self.canvas_frame.winfo_children(): w.destroy()
             self.lbl_weight.config(text="総重量: --- / 15,000 kg")
@@ -896,10 +900,13 @@ class App:
                     items.append({
                         'key': matched_key, 
                         'weight': w, 
-                        'source_container_id': 1,
                         'date_str': date_val
                     })
                     
+        # [FIX] 元コンテナIDを荷物数に応じて順番に付与（1コンテナあたり15個目安）
+        for idx, item in enumerate(items):
+            item['source_container_id'] = (idx // 15) + 1
+            
         return items
 
     def load_manifest_file(self):
@@ -1099,8 +1106,8 @@ class App:
             self.append_log(f"❌ CSV出力失敗: {str(e)}", Colors.ERROR)
             messagebox.showerror("エラー", f"CSV出力中にエラーが発生しました:\n{e}")
 
-    def run_simulation(self):
-        """シミュレーションを実行（最適化ロジック）"""
+    def run_simulation(self, mode="after"):
+        """シミュレーションを実行（Before/Afterの切り替え可能）"""
         if not self.annual_data:
             self.append_log("⚠️ データが読み込まれていません。")
             return
@@ -1108,31 +1115,54 @@ class App:
             self.append_log("⚠️ 対象のWeekが選択されていないか、データがありません。左のツリーからWeekを選択してください。")
             return
 
-        self.is_optimized = True # 最適化実行フラグを立てる
         w_data = self.annual_data[self.selected_week]
         all_items = []
         for i, item_data in enumerate(w_data['items']):
             key = item_data['key']
             master = PARTS_MASTER[key]
-            item = Item(key, master, i, item_data['weight'])
-            item.source_container_id = item_data.get('source_container_id')
+            item = Item(key, master, i, item_data.get('weight', master['weight']))
+            item.source_container_id = item_data.get('source_container_id', (i // 15) + 1)
             all_items.append(item)
-        
-        self.append_log(f"🚀 Week {self.selected_week} の最適化を開始...")
-        
-        self.all_containers = []
-        remaining_items = all_items.copy()
-        remaining_items.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
-        
-        while remaining_items:
-            target_rate = self.target_fill_rate_var.get() if hasattr(self, 'target_fill_rate_var') else 100
-            new_container = Container(target_fill_rate=target_rate)
-            new_container.load_items(remaining_items)
-            self.all_containers.append(new_container)
-            remaining_items = new_container.unloaded_items
-            if len(self.all_containers) > 20: break
+            
+        if not all_items: return
 
-        self.append_log(f"✅ 最適化完了: {w_data['containers_before']}本 ➡ {len(self.all_containers)}本に削減！")
+        self.all_containers = []
+        
+        if mode == "before":
+            self.is_optimized = False
+            self.append_log(f"📉 Week {self.selected_week} の【最適化前（現状の割り当て）】を表示しています")
+            
+            # 最適化前は、source_container_id ごとにコンテナを分ける
+            container_groups = {}
+            for item in all_items:
+                cid = item.source_container_id
+                if cid not in container_groups:
+                    container_groups[cid] = []
+                container_groups[cid].append(item)
+            
+            for cid in sorted(container_groups.keys()):
+                c = Container(target_fill_rate=100) # 現状表示なので制限なし
+                c.load_items(container_groups[cid])
+                self.all_containers.append(c)
+                
+            w_data['containers_before'] = len(self.all_containers) # Before本数を正確に更新
+            
+        else:
+            self.is_optimized = True
+            self.append_log(f"🚀 Week {self.selected_week} の【最適化】を開始...")
+            remaining_items = all_items.copy()
+            remaining_items.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
+            
+            while remaining_items:
+                target_rate = self.target_fill_rate_var.get() if hasattr(self, 'target_fill_rate_var') else 100
+                new_container = Container(target_fill_rate=target_rate)
+                new_container.load_items(remaining_items)
+                self.all_containers.append(new_container)
+                remaining_items = new_container.unloaded_items
+                if len(self.all_containers) > 100: break
+
+            self.append_log(f"✅ 最適化完了: {w_data['containers_before']}本 ➡ {len(self.all_containers)}本に削減！")
+
         self.current_container_idx = 0
         self.update_3d_display()
         self._update_comparison_display()
