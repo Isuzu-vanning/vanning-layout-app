@@ -1155,21 +1155,26 @@ class App:
         before_cnt = w_data['containers_before']
 
         if self.is_optimized:
-            after_cnt = len(self.all_containers)
+            after_cnt = len(self.containers_after) if hasattr(self, 'containers_after') else len(self.all_containers)
             diff = before_cnt - after_cnt
-            status_text = f"Week {self.selected_week} / 最適化後：{before_cnt}本 → {after_cnt}本"
+            status_text = f"【Week {self.selected_week}】 シミュレーション結果"
             self.lbl_preview_title.config(text=status_text, fg=Colors.TEXT_MAIN)
 
             if hasattr(self, "lbl_kpi_saved"):
-                self.lbl_kpi_saved.config(text=f"🎯 -{diff}本 削減！")
-                self.lbl_kpi_saved_sub.config(text=f"現状 {before_cnt}本  ➡  最適化後 {after_cnt}本")
-
                 if diff > 0:
-                    self.lbl_kpi_status.config(text="採用候補")
+                    self.lbl_kpi_saved.config(text=f"🎯 {diff}本 削減成功！", fg=Colors.SUCCESS if hasattr(Colors, 'SUCCESS') else "#2ecc71")
+                    self.lbl_kpi_status.config(text="採用候補", fg=Colors.SUCCESS if hasattr(Colors, 'SUCCESS') else "#2ecc71")
                     self.lbl_kpi_status_sub.config(text="本数削減あり。色分けは元のコンテナIDを表します")
-                else:
-                    self.lbl_kpi_status.config(text="要確認")
+                elif diff == 0:
+                    self.lbl_kpi_saved.config(text="🎯 ±0本 (削減なし)", fg=Colors.TEXT_MAIN)
+                    self.lbl_kpi_status.config(text="要確認", fg=Colors.ACCENT_HOT if hasattr(Colors, 'ACCENT_HOT') else "#e67e22")
                     self.lbl_kpi_status_sub.config(text="本数削減なし。条件変更を検討してください")
+                else:
+                    self.lbl_kpi_saved.config(text=f"⚠️ {abs(diff)}本 増加", fg=Colors.ERROR if hasattr(Colors, 'ERROR') else "#e74c3c")
+                    self.lbl_kpi_status.config(text="非推奨", fg=Colors.ERROR if hasattr(Colors, 'ERROR') else "#e74c3c")
+                    self.lbl_kpi_status_sub.config(text="本数が増加しています。目標積載率を上げてください")
+                
+                self.lbl_kpi_saved_sub.config(text=f"現状 {before_cnt}本  ➡  最適化後 {after_cnt}本")
         else:
             status_text = f"Week {self.selected_week} / 現状：{before_cnt}本"
             self.lbl_preview_title.config(text=status_text, fg=Colors.TEXT_MAIN)
