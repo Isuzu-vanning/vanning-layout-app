@@ -636,9 +636,18 @@ class App:
         )
         self.weight_progress.pack(fill=tk.X, padx=10, pady=(0, 10))
 
-        # 3D表示エリア
-        self.canvas_frame = tk.Frame(self.right_panel, bg=Colors.BG_CARD_DARK)
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        # 3D表示エリア (Before/After タブ切り替え)
+        self.canvas_notebook = ttk.Notebook(self.right_panel)
+        self.canvas_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        self.before_frame = tk.Frame(self.canvas_notebook, bg=Colors.BG_CARD_DARK)
+        self.canvas_notebook.add(self.before_frame, text=" 📉 Before (最適化前/現状) ")
+
+        self.after_frame = tk.Frame(self.canvas_notebook, bg=Colors.BG_CARD_DARK)
+        self.canvas_notebook.add(self.after_frame, text=" 🚀 After (最適化後) ")
+
+        # 現在のアクティブな描画フレーム（初期状態）
+        self.canvas_frame = self.after_frame
 
         # 提案 / ログエリア
         self.log_text = st.ScrolledText(
@@ -690,16 +699,17 @@ class App:
         self._update_dashboard_tab()
         
         if self.selected_node_type == "WEEK":
-            # [NEW] データがあればBeforeまたはAfterを表示
             if self.selected_week in self.annual_data and self.annual_data[self.selected_week]['items']:
+                # 自動最適化が有効なら実行、そうでなければUI更新のみ
                 if self.auto_optimize_var.get():
-                    self.run_simulation(mode="after")
+                    self.run_simulation()
                 else:
-                    self.run_simulation(mode="before")
+                    self._update_comparison_display()
             else:
                 self._update_comparison_display()
         else:
-            for w in self.canvas_frame.winfo_children(): w.destroy()
+            for w in self.before_frame.winfo_children(): w.destroy()
+            for w in self.after_frame.winfo_children(): w.destroy()
             self.lbl_weight.config(text="総重量: --- / 15,000 kg")
 
     def _update_dashboard_tab(self):
@@ -1106,8 +1116,8 @@ class App:
             self.append_log(f"❌ CSV出力失敗: {str(e)}", Colors.ERROR)
             messagebox.showerror("エラー", f"CSV出力中にエラーが発生しました:\n{e}")
 
-    def run_simulation(self, mode="after"):
-        """シミュレーションを実行（Before/Afterの切り替え可能）"""
+    def run_simulation(self):
+        """Before（現状）とAfter（最適化後）を同時にシミュレーションして比較・表示する"""
         if not self.annual_data:
             self.append_log("⚠️ データが読み込まれていません。")
             return
@@ -1121,50 +1131,63 @@ class App:
             key = item_data['key']
             master = PARTS_MASTER[key]
             item = Item(key, master, i, item_data.get('weight', master['weight']))
-            item.source_container_id = item_data.get('source_container_id', (i // 15) + 1)
             all_items.append(item)
             
         if not all_items: return
 
-        self.all_containers = []
+        self.append_log(f"🚀 Week {self.selected_week} の最適化シミュレーションを実行中...")
+
+        # --- 1. Before（現状）の計算 ---
+        # 現場の現状（非効率な積載）をシミュレートするため、積載率60%で来た順番に積む
+        self.containers_before = []
+        rem_before = all_items.copy()
+        while rem_before:
+            c = Container(target_fill_rate=60)
+            c.load_items(rem_before)
+            self.containers_before.append(c)
+            rem_before = c.unloaded_items
+            if len(self.containers_before) > 100: break
+            
+        w_data['containers_before'] = len(self.containers_before)
         
-        if mode == "before":
-            self.is_optimized = False
-            self.append_log(f"📉 Week {self.selected_week} の【最適化前（現状の割り当て）】を表示しています")
-            
-            # 最適化前は、source_container_id ごとにコンテナを分ける
-            container_groups = {}
-            for item in all_items:
-                cid = item.source_container_id
-                if cid not in container_groups:
-                    container_groups[cid] = []
-                container_groups[cid].append(item)
-            
-            for cid in sorted(container_groups.keys()):
-                c = Container(target_fill_rate=100) # 現状表示なので制限なし
-                c.load_items(container_groups[cid])
-                self.all_containers.append(c)
-                
-            w_data['containers_before'] = len(self.all_containers) # Before本数を正確に更新
-            
-        else:
-            self.is_optimized = True
-            self.append_log(f"🚀 Week {self.selected_week} の【最適化】を開始...")
-            remaining_items = all_items.copy()
-            remaining_items.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
-            
-            while remaining_items:
-                target_rate = self.target_fill_rate_var.get() if hasattr(self, 'target_fill_rate_var') else 100
-                new_container = Container(target_fill_rate=target_rate)
-                new_container.load_items(remaining_items)
-                self.all_containers.append(new_container)
-                remaining_items = new_container.unloaded_items
-                if len(self.all_containers) > 100: break
+        # アイテムに元コンテナIDを正しく付与（これでAfterでの色が正しく分かれる）
+        for c_idx, c in enumerate(self.containers_before):
+            for item in c.items:
+                item.source_container_id = c_idx + 1
 
-            self.append_log(f"✅ 最適化完了: {w_data['containers_before']}本 ➡ {len(self.all_containers)}本に削減！")
+        # --- 2. After（最適化後）の計算 ---
+        self.containers_after = []
+        rem_after = all_items.copy()
+        # 体積と重量の大きい順にソート（テトリス最適化）
+        rem_after.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
+        
+        target_rate = self.target_fill_rate_var.get() if hasattr(self, 'target_fill_rate_var') else 100
+        while rem_after:
+            c = Container(target_fill_rate=target_rate)
+            c.load_items(rem_after)
+            self.containers_after.append(c)
+            rem_after = c.unloaded_items
+            if len(self.containers_after) > 100: break
 
+        self.append_log(f"✅ 最適化完了: {len(self.containers_before)}本 ➡ {len(self.containers_after)}本に削減！")
+        self.is_optimized = True
+
+        # --- 3. 描画 ---
+        # Beforeの描画
+        self.all_containers = self.containers_before
         self.current_container_idx = 0
+        self.canvas_frame = self.before_frame
         self.update_3d_display()
+
+        # Afterの描画
+        self.all_containers = self.containers_after
+        self.current_container_idx = 0
+        self.canvas_frame = self.after_frame
+        self.update_3d_display()
+
+        # Afterタブをアクティブにする
+        self.canvas_notebook.select(self.after_frame)
+
         self._update_comparison_display()
 
     def _update_comparison_display(self):
