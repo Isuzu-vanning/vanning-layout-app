@@ -1037,36 +1037,72 @@ class App:
             self.append_log("🔄 データをリセットするには週次詳細画面で実行してください。")
 
     def export_csv(self):
-        """シミュレーション結果のCSVエクスポート"""
-        if not hasattr(self, 'all_containers') or not self.all_containers:
-            messagebox.showwarning("警告", "エクスポートするデータがありません。先に最適化を実行してください。")
+        """全週のシミュレーション結果を一括でCSVエクスポート"""
+        if not hasattr(self, 'annual_data') or not self.annual_data:
+            messagebox.showwarning("警告", "データが読み込まれていません。先にファイルからデータを読み込んでください。")
             return
             
         file_path = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv")],
-            initialfile=f"vanning_result_week{self.selected_week}.csv"
+            initialfile="vanning_annual_result.csv"
         )
         if not file_path: return
         
+        self.append_log("⏳ 全週のデータをエクスポート中（最適化を実行しています）...")
+        self.root.update() # UIのフリーズを防ぐ
+        
         try:
+            target_rate = self.target_fill_rate_var.get() if hasattr(self, 'target_fill_rate_var') else 100
+            
             with open(file_path, 'w', encoding='utf-8-sig') as f:
-                f.write("コンテナID,積載率(%),総重量(kg),荷物ID,名称,幅(mm),奥行(mm),高さ(mm),重量(kg)\n")
-                for i, c in enumerate(self.all_containers):
-                    c_id = i + 1
-                    fill_rate = self._calc_container_fill_rate(c)
-                    tot_w = c.total_weight
-                    for item in c.items:
-                        f.write(f"{c_id},{fill_rate},{tot_w},{item.id},{item.name},{item.w},{item.d},{item.h},{item.weight}\n")
+                f.write("Week,コンテナID,積載率(%),総重量(kg),荷物ID,名称,幅(mm),奥行(mm),高さ(mm),重量(kg)\n")
+                
+                for w in range(1, 54):
+                    if w not in self.annual_data or not self.annual_data[w]['items']:
+                        continue
+                        
+                    w_items = self.annual_data[w]['items']
+                    all_items = []
+                    for i, item_data in enumerate(w_items):
+                        key = item_data['key']
+                        if key not in PARTS_MASTER: continue
+                        master = PARTS_MASTER[key]
+                        item = Item(key, master, i, item_data['weight'])
+                        item.source_container_id = item_data.get('source_container_id', 1)
+                        all_items.append(item)
+                        
+                    all_items.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
+                    containers = []
+                    remaining_items = all_items.copy()
+                    
+                    while remaining_items:
+                        c = Container(target_fill_rate=target_rate)
+                        c.load_items(remaining_items)
+                        containers.append(c)
+                        remaining_items = c.unloaded_items
+                        if len(containers) > 100: break # 安全装置
+                        
+                    for i, c in enumerate(containers):
+                        c_id = i + 1
+                        fill_rate = self._calc_container_fill_rate(c)
+                        tot_w = c.total_weight
+                        for item in c.items:
+                            f.write(f"{w},{c_id},{fill_rate},{tot_w},{item.id},{item.name},{item.w},{item.d},{item.h},{item.weight}\n")
+                            
             self.append_log(f"✅ CSV出力完了: {os.path.basename(file_path)}")
+            messagebox.showinfo("完了", "すべてのシミュレーション結果をCSVにエクスポートしました。")
         except Exception as e:
             self.append_log(f"❌ CSV出力失敗: {str(e)}", Colors.ERROR)
             messagebox.showerror("エラー", f"CSV出力中にエラーが発生しました:\n{e}")
 
     def run_simulation(self):
         """シミュレーションを実行（最適化ロジック）"""
-        if not self.annual_data or self.selected_week not in self.annual_data:
-            self.append_log("⚠️ 対象週のデータがありません。")
+        if not self.annual_data:
+            self.append_log("⚠️ データが読み込まれていません。")
+            return
+        if not self.selected_week or self.selected_week not in self.annual_data:
+            self.append_log("⚠️ 対象のWeekが選択されていないか、データがありません。左のツリーからWeekを選択してください。")
             return
 
         self.is_optimized = True # 最適化実行フラグを立てる
