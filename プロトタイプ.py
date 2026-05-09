@@ -1287,7 +1287,8 @@ class App:
             for x in [0, c.w]:
                 for y in [0, c.d]: edges.append(([x, x], [y, y], [0, c.h]))
             for xs, ys, zs in edges: 
-                self.ax.plot(xs, ys, zs, color=Colors.ACCENT_MAIN, lw=1.5, alpha=0.3, zorder=0)
+                # 境界線を白っぽくして視認性を高める
+                self.ax.plot(xs, ys, zs, color="#E0E0E0", lw=1.2, alpha=0.5, zorder=0)
 
             def draw_box(item, is_error=False):
                 x, y, z = item.position; dx, dy, dz = item.w, item.d, item.h
@@ -1296,12 +1297,19 @@ class App:
                          [(xx[i], yy[i], zz[i]) for i in [0, 3, 7, 4]], [(xx[i], yy[i], zz[i]) for i in [1, 2, 6, 5]],
                          [(xx[i], yy[i], zz[i]) for i in [0, 1, 2, 3]], [(xx[i], yy[i], zz[i]) for i in [4, 5, 6, 7]]]
                 
-                # [FIX] 移動元の色を使用
-                face_color = item.get_source_color() if not is_error else Colors.ERROR
+                # 品名ごとに色を分けて視認性を向上（パステル調のパレット）
+                import zlib
+                if is_error:
+                    face_color = Colors.ERROR
+                else:
+                    color_idx = zlib.crc32(item.name.encode()) % 10
+                    palette = ["#3498db", "#2ecc71", "#9b59b6", "#f1c40f", "#e67e22", "#1abc9c", "#e74c3C", "#34495e", "#95a5a6", "#d35400"]
+                    face_color = palette[color_idx]
                 
-                poly = Poly3DCollection(verts, facecolors=face_color, linewidths=0.5, edgecolors='black', alpha=0.9, zorder=1)
+                # エッジを白にして太く、透明度を下げて奥の荷物を見やすくする
+                poly = Poly3DCollection(verts, facecolors=face_color, linewidths=1.0, edgecolors='white', alpha=0.6, zorder=1)
                 poly._item_info = f"{item.name}\n元コンテナ: {item.source_container_id}\n重量: {item.weight:,}kg"
-                poly._item_ref = item # アイテム本体への参照を保持
+                poly._item_ref = item 
                 poly.set_picker(True)
                 self.ax.add_collection3d(poly)
 
@@ -1315,10 +1323,10 @@ class App:
                                 edgecolors='white', linewidths=2, label="重心\nCOG", zorder=100, alpha=0.8)
                 self.ax.scatter([cog[0]], [cog[1]], [0], color=Colors.ACCENT_HOT, s=100, marker='x', alpha=0.5, zorder=99)
             
-            # [FIX] 重量表示を右上に逃がす
-            self.ax.text(c.w, c.d, c.h * 1.3, f"TOTAL: {c.total_weight:,}kg", color=Colors.ACCENT_MAIN, 
-                         fontsize=14, fontweight='bold', ha='right', 
-                         bbox=dict(facecolor=Colors.BG_CARD, alpha=0.8, edgecolor=Colors.ACCENT_MAIN))
+            # [FIX] 不要なTOTAL重量ラベルを削除（UI側に表示されているため）
+            # self.ax.text(c.w, c.d, c.h * 1.3, f"TOTAL: {c.total_weight:,}kg", color=Colors.ACCENT_MAIN, 
+            #              fontsize=14, fontweight='bold', ha='right', 
+            #              bbox=dict(facecolor=Colors.BG_CARD, alpha=0.8, edgecolor=Colors.ACCENT_MAIN))
 
             # [FIX] 目盛りと軸ラベルの調整（数値を減らして見やすく）
             self.ax.xaxis.set_major_locator(ticker.MaxNLocator(4))
