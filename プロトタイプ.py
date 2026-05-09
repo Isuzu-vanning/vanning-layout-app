@@ -116,9 +116,10 @@ class Item:
 
 # --- 4. コンテナクラス ---
 class Container:
-    def __init__(self):
+    def __init__(self, target_fill_rate=100):
         self.w, self.d, self.h = 12000, 2300, 2400
         self.max_weight = 15000
+        self.target_fill_rate = target_fill_rate
         self.door_w, self.door_h = 2300, 2400
         self.items = []
         self.unloaded_items = []
@@ -142,6 +143,15 @@ class Container:
                 self.unloaded_items.append(item)
 
     def _try_load_single_item(self, item):
+        # --- [NEW] 目標積載率による制限 ---
+        current_volume = sum(i.w * i.d * i.h for i in self.items)
+        max_volume = self.w * self.d * self.h * (self.target_fill_rate / 100.0)
+        item_volume = item.w * item.d * item.h
+        if current_volume + item_volume > max_volume:
+            item.is_spaceover = True
+            item.set_position(self.w/2 - item.w/2, self.d/2 - item.d/2, self.h + 50)
+            return False
+
         # 縦置き・横置きそれぞれの向き（オリエンテーション）のリストを作成
         orientations = []
         # パターン1: オリジナル (w, d)
@@ -492,6 +502,29 @@ class App:
             cursor="hand2"
         )
         import_btn.pack(fill=tk.X, padx=15, pady=(0, 10))
+
+        # --- [NEW] 要件2: 目標積載率の設定UI ---
+        self.target_fill_rate_var = tk.IntVar(value=85)
+        fill_frame = tk.Frame(self.left_panel, bg=Colors.BG_PANEL)
+        fill_frame.pack(fill=tk.X, padx=15, pady=(0, 10))
+        tk.Label(fill_frame, text="目標積載率 (%):", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, font=Fonts.BODY_BOLD).pack(side=tk.LEFT)
+        tk.Spinbox(fill_frame, from_=50, to=100, textvariable=self.target_fill_rate_var, width=5, font=Fonts.BODY).pack(side=tk.LEFT, padx=(5,0))
+
+        # --- [NEW] 要件2: CSVエクスポートボタン ---
+        export_btn = tk.Button(
+            self.left_panel,
+            text="📥 CSVエクスポート",
+            bg=Colors.SUCCESS,
+            fg=Colors.TEXT_DARK,
+            activebackground=Colors.ACCENT_HOT,
+            activeforeground=Colors.TEXT_DARK,
+            relief="flat",
+            font=Fonts.BODY_BOLD,
+            command=self.export_csv,
+            height=2,
+            cursor="hand2"
+        )
+        export_btn.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         tk.Checkbutton(
             self.left_panel,
@@ -997,6 +1030,33 @@ class App:
         else:
             self.append_log("🔄 データをリセットするには週次詳細画面で実行してください。")
 
+    def export_csv(self):
+        """シミュレーション結果のCSVエクスポート"""
+        if not hasattr(self, 'all_containers') or not self.all_containers:
+            messagebox.showwarning("警告", "エクスポートするデータがありません。先に最適化を実行してください。")
+            return
+            
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            initialfile=f"vanning_result_week{self.selected_week}.csv"
+        )
+        if not file_path: return
+        
+        try:
+            with open(file_path, 'w', encoding='utf-8-sig') as f:
+                f.write("コンテナID,積載率(%),総重量(kg),荷物ID,名称,幅(mm),奥行(mm),高さ(mm),重量(kg)\n")
+                for i, c in enumerate(self.all_containers):
+                    c_id = i + 1
+                    fill_rate = self._calc_container_fill_rate(c)
+                    tot_w = c.total_weight
+                    for item in c.items:
+                        f.write(f"{c_id},{fill_rate},{tot_w},{item.id},{item.name},{item.w},{item.d},{item.h},{item.weight}\n")
+            self.append_log(f"✅ CSV出力完了: {os.path.basename(file_path)}")
+        except Exception as e:
+            self.append_log(f"❌ CSV出力失敗: {str(e)}", Colors.ERROR)
+            messagebox.showerror("エラー", f"CSV出力中にエラーが発生しました:\n{e}")
+
     def run_simulation(self):
         """シミュレーションを実行（最適化ロジック）"""
         if not self.annual_data or self.selected_week not in self.annual_data:
@@ -1020,7 +1080,8 @@ class App:
         remaining_items.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
         
         while remaining_items:
-            new_container = Container()
+            target_rate = self.target_fill_rate_var.get() if hasattr(self, 'target_fill_rate_var') else 100
+            new_container = Container(target_fill_rate=target_rate)
             new_container.load_items(remaining_items)
             self.all_containers.append(new_container)
             remaining_items = new_container.unloaded_items
