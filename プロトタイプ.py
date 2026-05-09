@@ -26,15 +26,16 @@ FONT_FAMILY = get_jp_font_family()
 plt.rcParams['font.family'] = FONT_FAMILY
 
 class Colors:
-    BG_MAIN     = "#6F8FA3"   # 全体背景
-    BG_PANEL    = "#7C9CAF"   # パネル
-    BG_CARD     = "#89A9BA"   # カード
-    ACCENT_MAIN = "#E8D5A2"   # ベージュ（主ボタン）
-    ACCENT_HOT  = "#D8C18A"
-    
+    # LINE着せ替え風：くすみブルー × ベージュ
+    BG_MAIN     = "#6F8FA3"   # アプリ全体の背景
+    BG_PANEL    = "#7C9CAF"   # サイドバー・ヘッダー
+    BG_CARD     = "#89A9BA"   # カード背景
+    BG_CARD_DARK= "#5F7F93"   # 3Dビュー周辺
+    ACCENT_MAIN = "#E8D5A2"   # 選択・主ボタン
+    ACCENT_HOT  = "#D8C18A"   # 強調
     TEXT_MAIN   = "#FFFFFF"
     TEXT_DIM    = "#E6EEF2"
-
+    TEXT_DARK   = "#2D3D46"
     SUCCESS     = "#BDE5C8"
     WARNING     = "#FFD27F"
     ERROR       = "#FF8C8C"
@@ -365,119 +366,251 @@ class App:
         self._update_dashboard_tab()
 
     def _build_notebook_layout(self):
-        # 内部ログ保持用 (表示しないがエラー防止)
-        self.log_text = tk.Text(self.root) 
-        
+        # 内部ログ保持用
+        self.log_text = tk.Text(self.root)
+
         style = ttk.Style()
         style.theme_use("default")
+
+        # Notebook / Treeview / Progressbar のLINE風テーマ
         style.configure("TNotebook", background=Colors.BG_MAIN, borderwidth=0)
-        style.configure("TNotebook.Tab", background=Colors.BG_PANEL, foreground="white", padding=[20, 10], font=Fonts.BODY_BOLD)
-        style.map("TNotebook.Tab", background=[("selected", Colors.ACCENT_MAIN)], foreground=[("selected", "black")])
+        style.configure(
+            "TNotebook.Tab",
+            background=Colors.BG_PANEL,
+            foreground=Colors.TEXT_MAIN,
+            padding=[24, 12],
+            font=Fonts.BODY_BOLD
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", Colors.ACCENT_MAIN)],
+            foreground=[("selected", Colors.TEXT_DARK)]
+        )
+        style.configure(
+            "Treeview",
+            background=Colors.BG_CARD,
+            foreground=Colors.TEXT_MAIN,
+            fieldbackground=Colors.BG_CARD,
+            borderwidth=0,
+            rowheight=28,
+            font=Fonts.BODY
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", Colors.ACCENT_MAIN)],
+            foreground=[("selected", Colors.TEXT_DARK)]
+        )
+        style.configure(
+            "Horizontal.TProgressbar",
+            troughcolor=Colors.BG_PANEL,
+            background=Colors.ACCENT_MAIN,
+            bordercolor=Colors.BG_PANEL,
+            lightcolor=Colors.ACCENT_MAIN,
+            darkcolor=Colors.ACCENT_MAIN
+        )
 
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+
         # ==========================================
         # タブ1: 管理・分析タブ
         # ==========================================
         self.tab_dashboard = tk.Frame(self.notebook, bg=Colors.BG_MAIN)
-        self.notebook.add(self.tab_dashboard, text="📊 管理・分析タブ")
-        
-        self.lbl_dashboard_title = tk.Label(self.tab_dashboard, text="📊 年間物流集約ダッシュボード", bg=Colors.BG_MAIN, fg="white", font=Fonts.HEADER)
-        self.lbl_dashboard_title.pack(anchor="w", pady=(20, 20), padx=30)
-        
+        self.notebook.add(self.tab_dashboard, text="📊 管理・分析")
+
+        self.lbl_dashboard_title = tk.Label(
+            self.tab_dashboard,
+            text="📊 年間物流集約ダッシュボード",
+            bg=Colors.BG_MAIN,
+            fg=Colors.TEXT_MAIN,
+            font=("Meiryo", 18, "bold")
+        )
+        self.lbl_dashboard_title.pack(anchor="w", pady=(22, 18), padx=30)
+
         self.metrics_frame = tk.Frame(self.tab_dashboard, bg=Colors.BG_MAIN)
         self.metrics_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
-        
-        self.chart_frame = tk.Frame(self.tab_dashboard, bg=Colors.BG_CARD, padx=20, pady=20)
+
+        self.chart_frame = tk.Frame(
+            self.tab_dashboard,
+            bg=Colors.BG_CARD,
+            padx=20,
+            pady=20,
+            highlightthickness=0
+        )
         self.chart_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=(0, 30))
 
         # ==========================================
         # タブ2: バンニング作業タブ
         # ==========================================
         self.tab_workspace = tk.Frame(self.notebook, bg=Colors.BG_MAIN)
-        self.notebook.add(self.tab_workspace, text="📦 バンニング作業タブ")
-        
+        self.notebook.add(self.tab_workspace, text="📦 バンニング作業")
+
         self.workspace_paned = ttk.PanedWindow(self.tab_workspace, orient=tk.HORIZONTAL)
         self.workspace_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # --- 左側（ツリーナビゲーション） ---
-        self.left_panel = tk.Frame(self.workspace_paned, width=300, bg=Colors.BG_PANEL)
+
+        # --- 左側（ナビゲーション） ---
+        self.left_panel = tk.Frame(self.workspace_paned, width=320, bg=Colors.BG_PANEL)
         self.workspace_paned.add(self.left_panel, weight=1)
         self.left_panel.pack_propagate(False)
-        
-        tk.Label(self.left_panel, text="📁 ナビゲーション", bg=Colors.BG_PANEL, fg="white", font=Fonts.HEADER).pack(anchor="w", pady=15, padx=15)
-        
-        style.configure("Treeview", background=Colors.BG_CARD, foreground="white", fieldbackground=Colors.BG_CARD, borderwidth=0, font=Fonts.BODY)
-        style.map("Treeview", background=[("selected", Colors.ACCENT_MAIN)], foreground=[("selected", "black")])
-        
-        self.tree = ttk.Treeview(self.left_panel, selectmode="browse", show="tree")
-        self.tree.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
-        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
-        
-        tk.Button(self.left_panel, text="📁 CSV/Excel読込", bg="#334466", fg="white", font=Fonts.BODY_BOLD, command=self.load_manifest_file).pack(fill=tk.X, padx=15, pady=10)
-        
-        # [NEW] 自動最適化のチェックボックス
-        tk.Checkbutton(self.left_panel, text="選択時に自動最適化", variable=self.auto_optimize_var, 
-                       bg=Colors.BG_PANEL, fg="white", selectcolor="black", activebackground=Colors.BG_PANEL,
-                       font=Fonts.SMALL).pack(anchor="w", padx=15)
 
-        # --- 右側（3Dプレビュー・画面の80%占有） ---
-        self.right_panel = tk.Frame(self.workspace_paned, bg=Colors.BG_MAIN)
-        self.workspace_paned.add(self.right_panel, weight=4) # 80%占有
-        
-        # KPIエリア
-        self.kpi_frame = tk.Frame(
-            self.right_panel,
-            bg=Colors.BG_CARD,
-            padx=20,
-            pady=15
-        )
-        self.kpi_frame.pack(fill=tk.X, padx=10, pady=(10,5))
-
-        self.lbl_kpi_main = tk.Label(
-            self.kpi_frame,
-            text="🎯 削減：-- 本",
-            bg=Colors.BG_CARD,
+        tk.Label(
+            self.left_panel,
+            text="📁 対象期間",
+            bg=Colors.BG_PANEL,
             fg=Colors.TEXT_MAIN,
-            font=("Meiryo", 22, "bold")
-        )
-        self.lbl_kpi_main.pack(anchor="w")
+            font=("Meiryo", 15, "bold")
+        ).pack(anchor="w", pady=(18, 6), padx=18)
 
-        self.lbl_kpi_sub = tk.Label(
-            self.kpi_frame,
-            text="充填率：-- %",
+        # 操作ガイド
+        guide = tk.Frame(self.left_panel, bg=Colors.BG_CARD, padx=14, pady=12)
+        guide.pack(fill=tk.X, padx=15, pady=(0, 12))
+        tk.Label(guide, text="操作フロー", bg=Colors.BG_CARD, fg=Colors.TEXT_MAIN, font=Fonts.BODY_BOLD).pack(anchor="w")
+        tk.Label(
+            guide,
+            text="① Week選択\n② 最適化する\n③ 削減結果を確認",
             bg=Colors.BG_CARD,
             fg=Colors.TEXT_DIM,
-            font=("Meiryo", 10)
+            justify=tk.LEFT,
+            font=Fonts.SMALL
+        ).pack(anchor="w", pady=(6, 0))
+
+        self.tree = ttk.Treeview(self.left_panel, selectmode="browse", show="tree")
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 12))
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+
+        import_btn = tk.Button(
+            self.left_panel,
+            text="📁 CSV / Excel 読込",
+            bg=Colors.ACCENT_MAIN,
+            fg=Colors.TEXT_DARK,
+            activebackground=Colors.ACCENT_HOT,
+            activeforeground=Colors.TEXT_DARK,
+            relief="flat",
+            font=Fonts.BODY_BOLD,
+            command=self.load_manifest_file,
+            height=2,
+            cursor="hand2"
         )
-        self.lbl_kpi_sub.pack(anchor="w")
-        
-        preview_header = tk.Frame(self.right_panel, bg=Colors.BG_PANEL, padx=20, pady=15)
-        preview_header.pack(fill=tk.X)
-        
-        self.lbl_preview_title = tk.Label(preview_header, text="Weekが選択されていません", bg=Colors.BG_PANEL, fg="white", font=Fonts.HEADER)
+        import_btn.pack(fill=tk.X, padx=15, pady=(0, 10))
+
+        tk.Checkbutton(
+            self.left_panel,
+            text="選択時に自動最適化",
+            variable=self.auto_optimize_var,
+            bg=Colors.BG_PANEL,
+            fg=Colors.TEXT_MAIN,
+            selectcolor=Colors.BG_CARD,
+            activebackground=Colors.BG_PANEL,
+            activeforeground=Colors.TEXT_MAIN,
+            font=Fonts.SMALL
+        ).pack(anchor="w", padx=18, pady=(0, 12))
+
+        # --- 右側（作業エリア） ---
+        self.right_panel = tk.Frame(self.workspace_paned, bg=Colors.BG_MAIN)
+        self.workspace_paned.add(self.right_panel, weight=4)
+
+        # LINE風ヘッダー
+        preview_header = tk.Frame(self.right_panel, bg=Colors.BG_PANEL, padx=20, pady=14)
+        preview_header.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        self.lbl_preview_title = tk.Label(
+            preview_header,
+            text="Weekが選択されていません",
+            bg=Colors.BG_PANEL,
+            fg=Colors.TEXT_MAIN,
+            font=("Meiryo", 15, "bold")
+        )
         self.lbl_preview_title.pack(side=tk.LEFT)
-        
-        self.lbl_weight = tk.Label(preview_header, text="総重量: --- / 15,000 kg", bg=Colors.BG_PANEL, fg=Colors.ACCENT_MAIN, font=Fonts.BODY_BOLD)
+
+        self.lbl_weight = tk.Label(
+            preview_header,
+            text="総重量: --- / 15,000 kg",
+            bg=Colors.BG_PANEL,
+            fg=Colors.TEXT_DIM,
+            font=Fonts.BODY_BOLD
+        )
         self.lbl_weight.pack(side=tk.RIGHT)
-        
-        self.weight_progress = ttk.Progressbar(self.right_panel, orient="horizontal", mode="determinate", length=300)
-        self.weight_progress.pack(fill=tk.X, padx=20, pady=(0, 10))
-        
-        btn_frame = tk.Frame(self.right_panel, bg=Colors.BG_MAIN, pady=10)
-        btn_frame.pack(fill=tk.X)
-        tk.Button(btn_frame, text="▶ 最適化を実行", bg=Colors.ACCENT_MAIN, fg="black", font=Fonts.BODY_BOLD, command=self.run_simulation, width=15).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="🔄 クリア", bg="#445566", fg="white", font=Fonts.BODY_BOLD, command=self.clear_all_items, width=15).pack(side=tk.LEFT, padx=5)
-        
-        self.canvas_frame = tk.Frame(self.right_panel, bg="black")
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
-        
-        # ログエリアを追加
-        
-        # ログエリアを追加
-        self.log_text = st.ScrolledText(self.right_panel, height=6, bg="black", fg=Colors.SUCCESS, font=Fonts.SMALL, borderwidth=0)
-        self.log_text.pack(fill=tk.X, pady=5)
+
+        # KPIカード
+        self.kpi_frame = tk.Frame(self.right_panel, bg=Colors.BG_MAIN)
+        self.kpi_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        self.kpi_saved_card = tk.Frame(self.kpi_frame, bg=Colors.BG_CARD, padx=20, pady=16)
+        self.kpi_saved_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        tk.Label(self.kpi_saved_card, text="削減効果", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL_BOLD).pack(anchor="w")
+        self.lbl_kpi_saved = tk.Label(self.kpi_saved_card, text="🎯 -- 本", bg=Colors.BG_CARD, fg=Colors.TEXT_MAIN, font=("Meiryo", 24, "bold"))
+        self.lbl_kpi_saved.pack(anchor="w", pady=(4, 0))
+        self.lbl_kpi_saved_sub = tk.Label(self.kpi_saved_card, text="Weekを選択してください", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL)
+        self.lbl_kpi_saved_sub.pack(anchor="w")
+
+        self.kpi_status_card = tk.Frame(self.kpi_frame, bg=Colors.BG_CARD, padx=20, pady=16)
+        self.kpi_status_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
+        tk.Label(self.kpi_status_card, text="採用判断", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL_BOLD).pack(anchor="w")
+        self.lbl_kpi_status = tk.Label(self.kpi_status_card, text="待機中", bg=Colors.BG_CARD, fg=Colors.TEXT_MAIN, font=("Meiryo", 18, "bold"))
+        self.lbl_kpi_status.pack(anchor="w", pady=(8, 0))
+        self.lbl_kpi_status_sub = tk.Label(self.kpi_status_card, text="最適化後に判定します", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL)
+        self.lbl_kpi_status_sub.pack(anchor="w")
+
+        # 主操作ボタン
+        btn_frame = tk.Frame(self.right_panel, bg=Colors.BG_MAIN)
+        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        tk.Button(
+            btn_frame,
+            text="🔄 最適化する",
+            bg=Colors.ACCENT_MAIN,
+            fg=Colors.TEXT_DARK,
+            activebackground=Colors.ACCENT_HOT,
+            activeforeground=Colors.TEXT_DARK,
+            relief="flat",
+            font=("Meiryo", 12, "bold"),
+            command=self.run_simulation,
+            height=2,
+            width=18,
+            cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        tk.Button(
+            btn_frame,
+            text="クリア",
+            bg=Colors.BG_CARD,
+            fg=Colors.TEXT_MAIN,
+            activebackground=Colors.BG_PANEL,
+            activeforeground=Colors.TEXT_MAIN,
+            relief="flat",
+            font=Fonts.BODY_BOLD,
+            command=self.clear_all_items,
+            height=2,
+            width=12,
+            cursor="hand2"
+        ).pack(side=tk.LEFT)
+
+        self.weight_progress = ttk.Progressbar(
+            self.right_panel,
+            orient="horizontal",
+            mode="determinate",
+            length=300,
+            style="Horizontal.TProgressbar"
+        )
+        self.weight_progress.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        # 3D表示エリア
+        self.canvas_frame = tk.Frame(self.right_panel, bg=Colors.BG_CARD_DARK)
+        self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        # 提案 / ログエリア
+        self.log_text = st.ScrolledText(
+            self.right_panel,
+            height=7,
+            bg=Colors.BG_CARD,
+            fg=Colors.TEXT_MAIN,
+            insertbackground=Colors.TEXT_MAIN,
+            font=Fonts.SMALL,
+            borderwidth=0,
+            padx=12,
+            pady=10
+        )
+        self.log_text.pack(fill=tk.X, padx=10, pady=(0, 10))
 
     def _populate_treeview(self):
         self.tree.delete(*self.tree.get_children())
@@ -612,74 +745,123 @@ class App:
         }
 
     def create_metric_card_small(self, parent, title, value, color, subtitle=""):
-        card = tk.Frame(parent, bg=Colors.BG_CARD, padx=20, pady=15, highlightthickness=1, highlightbackground=color)
+        card = tk.Frame(parent, bg=Colors.BG_CARD, padx=22, pady=16, highlightthickness=0)
         card.pack(side=tk.LEFT, padx=10, expand=True, fill=tk.BOTH)
-        tk.Label(card, text=title, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
-        tk.Label(card, text=value, bg=Colors.BG_CARD, fg=color, font=("Impact", 24)).pack(anchor="w")
+        tk.Label(card, text=title, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL_BOLD).pack(anchor="w")
+        tk.Label(card, text=value, bg=Colors.BG_CARD, fg=Colors.TEXT_MAIN, font=("Meiryo", 24, "bold")).pack(anchor="w", pady=(4, 0))
         if subtitle:
-            tk.Label(card, text=subtitle, bg=Colors.BG_CARD, fg="white", font=Fonts.SMALL).pack(anchor="w")
+            tk.Label(card, text=subtitle, bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL).pack(anchor="w")
 
     def append_log(self, text, color="white"):
-        self.log_text.insert(tk.END, text + "\n")
+        # LINE風のメッセージログ。色引数は既存互換のため残す。
+        if not hasattr(self, "log_text"):
+            return
+        prefix = "💬 "
+        if text.startswith(("✅", "🎯")):
+            prefix = "📦 "
+        elif text.startswith(("⚠️", "❌")):
+            prefix = "⚠️ "
+        elif text.startswith(("🚀", "💡")):
+            prefix = "💡 "
+        self.log_text.insert(tk.END, prefix + text + "\n")
         self.log_text.see(tk.END)
 
     def _parse_manifest_dataframe(self, df):
-        """DataFrameから荷物情報を抽出する共通ロジック"""
+        """
+        [NEW] 抜本的に改修された堅牢なデータパーサー。
+        縦型構造（日付列の独立、分類列の読み込み）、欠損値・不要文字列のハンドリング機能付き。
+        """
+        items = []
+        name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
         
-        # --- [NEW] ヘッダー行の自動探索と再設定 ---
-        # 1行目に「2026/01/08 Container-1」などのメタデータがある場合を回避
+        # 1. データのクリーンアップとヘッダー特定
         temp_df = df.copy()
-        temp_df.loc[-1] = temp_df.columns # 現在のヘッダーをデータ行として追加
+        if temp_df.columns.dtype != 'object':
+            temp_df.columns = temp_df.columns.astype(str)
+        temp_df.loc[-1] = temp_df.columns
         temp_df.index = temp_df.index + 1
         temp_df = temp_df.sort_index()
         
+        # 不要な空行の削除
+        temp_df = temp_df.dropna(how='all')
+        
         header_idx = -1
         for idx, row in temp_df.iterrows():
-            row_str = " ".join([str(val) for val in row])
-            if any(k in row_str for k in ["名称", "品名", "Name", "分類", "資材名称"]):
+            row_str = " ".join([str(val) for val in row if pd.notna(val)])
+            # 「分類」「日付」といったキーワードを探す
+            if any(k in row_str for k in ["分類", "名称", "品名", "Name", "資材名称", "日付", "Date", "月", "日"]):
                 header_idx = idx
                 break
                 
         if header_idx != -1:
-            # 見つけたヘッダー行を実際のカラムとして再設定
             df = temp_df.iloc[header_idx+1:].reset_index(drop=True)
             df.columns = temp_df.iloc[header_idx]
-
-        name_to_key = {v['name'].replace(" ", "").replace("　",""): k for k, v in PARTS_MASTER.items()}
-        items = []
+            
+        # カラム名の正規化
+        df.columns = [str(col).strip() for col in df.columns]
         
-        weight_col = next((col for col in df.columns if "重量" in str(col) or "Weight" in str(col)), 6)
-        name_col = next((col for col in df.columns if "名称" in str(col) or "品名" in str(col) or "Name" in str(col)), 2)
-        qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col)), None)
+        # 2. 主要カラムの特定
+        date_col = next((col for col in df.columns if any(k in str(col) for k in ["日付", "Date", "月", "日", "Week", "期間"])), None)
+        name_col = next((col for col in df.columns if any(k in str(col) for k in ["分類", "名称", "品名", "Name", "資材名称"])), df.columns[0] if len(df.columns) > 0 else None)
+        weight_col = next((col for col in df.columns if "重量" in str(col) or "Weight" in str(col)]), None)
+        qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col) or "Q'ty" in str(col) or "Qty" in str(col)]), None)
+
+        # 3. データのパースと数値クリーンアップ (pd.to_numeric 等で堅牢に処理)
+        if qty_col:
+            # 不要な文字列を削除して数値化。パースできないものは 1 とする
+            df[qty_col] = pd.to_numeric(df[qty_col].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(1)
+        if weight_col:
+            df[weight_col] = pd.to_numeric(df[weight_col].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce')
 
         for _, row in df.iterrows():
-            cell_0 = str(row[0]).strip()
-            if not cell_0 or cell_0 == "nan" or "Container" in cell_0 or "種別" in cell_0: continue
+            p_name = str(row[name_col]).strip() if name_col else ""
+            if not p_name or p_name == "nan" or "Container" in p_name or "種別" in p_name:
+                continue
 
+            # キーの特定
             matched_key = None
-            try:
-                raw_id = int(row[1])
-                test_key = f"CASE_{raw_id:02d}"
-                if test_key in PARTS_MASTER: matched_key = test_key
-            except: pass
+            clean_name = p_name.replace(" ", "").replace("　","")
+            if clean_name in name_to_key:
+                matched_key = name_to_key[clean_name]
             
+            # CASE_xx 形式などのマッチング
             if not matched_key:
-                p_name = str(row[name_col]).strip().replace(" ", "").replace("　","")
-                if p_name in name_to_key: matched_key = name_to_key[p_name]
-            
+                try:
+                    match = re.search(r'\d+', clean_name)
+                    if match:
+                        raw_id = int(match.group())
+                        test_key = f"CASE_{raw_id:02d}"
+                        if test_key in PARTS_MASTER:
+                            matched_key = test_key
+                except:
+                    pass
+
             if matched_key:
-                try: w = int(row[weight_col])
-                except: w = PARTS_MASTER[matched_key]['weight']
+                # 重量の取得
+                w = PARTS_MASTER[matched_key]['weight']
+                if weight_col and pd.notna(row[weight_col]):
+                    w = float(row[weight_col])
+                
+                # 数量の取得
                 qty = 1
-                if qty_col is not None and not pd.isna(row[qty_col]):
-                    try: qty = int(row[qty_col])
-                    except: qty = 1
+                if qty_col and pd.notna(row[qty_col]):
+                    qty = int(row[qty_col])
+                    
+                # 日付情報
+                date_val = str(row[date_col]) if date_col and pd.notna(row[date_col]) else ""
+                
                 for _ in range(qty):
-                    items.append({'key': matched_key, 'weight': w, 'source_container_id': 1})
+                    items.append({
+                        'key': matched_key, 
+                        'weight': w, 
+                        'source_container_id': 1,
+                        'date_str': date_val
+                    })
+                    
         return items
 
     def load_manifest_file(self):
-        """Excel/CSVの読込。複数ファイル選択に対応し、ファイル名から月を自動判定する。"""
+        """Excel/CSVの読込。複数ファイル選択に対応し、ファイル名やデータ内の日付列から週を自動判定する。"""
         file_paths = filedialog.askopenfilenames(filetypes=[("Excel/CSV files", "*.xlsx *.xls *.csv")])
         if not file_paths: return
         
@@ -688,56 +870,22 @@ class App:
                 self.append_log(f"📂 ファイルを解析中: {os.path.basename(file_path)}")
                 
                 if file_path.endswith('.csv'):
-                    # CSVの場合は月を自動判定
                     try: df = pd.read_csv(file_path, encoding='utf-8')
                     except: df = pd.read_csv(file_path, encoding='shift_jis')
                     
                     items = self._parse_manifest_dataframe(df)
                     if items:
-                        # ファイル名から数字（月）を探す
-                        fname = os.path.basename(file_path)
-                        month_match = re.search(r'(\d+)', fname)
-                        
-                        if month_match:
-                            month = int(month_match.group(1))
-                            if 1 <= month <= 12:
-                                target_week = (month - 1) * 4 + 1
-                                self.append_log(f"💡 ファイル名から {month}月 (Week {target_week}) と判定しました。")
-                            else:
-                                target_week = self.selected_week if self.selected_week else 1
-                        else:
-                            target_week = self.selected_week if self.selected_week else 1
-                        
-                        self.annual_data[target_week] = {
-                            'items': items,
-                            'containers_before': (len(items) // 15) + 1 
-                        }
-                        self.append_log(f"✅ CSVデータを Week {target_week} に読み込みました。")
+                        self._distribute_items_by_date(items, file_path)
                 else:
-                    # Excelの場合は全シートを月ごとに処理
+                    # Excelの場合は全シートを処理
                     xl = pd.ExcelFile(file_path)
-                    # Excel一括ロードの場合は既存データをリセットするか選ばせる（ここでは簡略化のため追記）
-                    
                     total_items_count = 0
                     for sheet_name in xl.sheet_names:
-                        match = re.search(r'(\d+)', sheet_name)
-                        if not match: continue
-                        month = int(match.group(1))
-                        
                         df = xl.parse(sheet_name)
                         items = self._parse_manifest_dataframe(df)
-                        if not items: continue
-                        
-                        chunk_size = (len(items) // 4) + 1
-                        for w_idx in range(4):
-                            global_week = (month - 1) * 4 + w_idx + 1
-                            week_items = items[w_idx * chunk_size : (w_idx + 1) * chunk_size]
-                            if week_items:
-                                self.annual_data[global_week] = {
-                                    'items': week_items,
-                                    'containers_before': (len(week_items) // 15) + 2
-                                }
-                                total_items_count += len(week_items)
+                        if items:
+                            self._distribute_items_by_date(items, file_path, sheet_name)
+                            total_items_count += len(items)
                     
                     self.append_log(f"✅ エクセルから計 {total_items_count} 個の荷物を読込完了。")
             
@@ -759,6 +907,56 @@ class App:
         except Exception as e:
             self.append_log(f"❌ 読込失敗: {str(e)}", Colors.ERROR)
             messagebox.showerror("エラー", f"読込中にエラーが発生しました:\n{e}")
+
+    def _distribute_items_by_date(self, items, file_path, sheet_name=""):
+        """各アイテムの持つ date_str やファイル名から適切な週を判別して分配する"""
+        import dateutil.parser
+        
+        for item in items:
+            date_str = item.get('date_str', '')
+            target_week = None
+            
+            # 1. アイテム自身の日付列から週を判定
+            if date_str and date_str != 'nan':
+                try:
+                    # 「コンテナ1何月何日」のような不要な文字列対策として日付部分だけを抽出・パース
+                    dt = dateutil.parser.parse(date_str, fuzzy=True)
+                    target_week = dt.isocalendar()[1]
+                except:
+                    pass
+                    
+            # 2. シート名から判定
+            if target_week is None and sheet_name:
+                match = re.search(r'(\d+)月?', sheet_name)
+                if match:
+                    month = int(match.group(1))
+                    if 1 <= month <= 12:
+                        target_week = (month - 1) * 4 + 1
+            
+            # 3. ファイル名から判定
+            if target_week is None:
+                fname = os.path.basename(file_path)
+                match = re.search(r'(\d+)月?', fname)
+                if match:
+                    month = int(match.group(1))
+                    if 1 <= month <= 12:
+                        target_week = (month - 1) * 4 + 1
+                        
+            # 4. デフォルトフォールバック
+            if target_week is None:
+                target_week = self.selected_week if self.selected_week else 1
+                
+            if target_week not in self.annual_data:
+                self.annual_data[target_week] = {'items': [], 'containers_before': 0}
+                
+            self.annual_data[target_week]['items'].append(item)
+            
+        # コンテナ本数の再計算 (平均データ用)
+        for w in self.annual_data:
+            num_items = len(self.annual_data[w]['items'])
+            if num_items > 0:
+                # 簡単な平均データ用最適化: 現状として1コンテナあたり15個程度と仮定
+                self.annual_data[w]['containers_before'] = (num_items // 15) + 1
 
     def save_session_data(self):
         """現在の荷物データをファイルに保存する"""
@@ -834,80 +1032,133 @@ class App:
         self._update_comparison_display()
 
     def _update_comparison_display(self):
-        """最適化前後の比較情報をラベルに反映"""
+        """最適化前後の比較情報をラベル・KPIに反映"""
         if self.selected_node_type != "WEEK" or not self.selected_week or self.selected_week not in self.annual_data:
-            self.lbl_preview_title.config(text="Weekを選択してください", fg="white")
+            self.lbl_preview_title.config(text="Weekを選択してください", fg=Colors.TEXT_MAIN)
             self.lbl_weight.config(text="総重量: --- / 15,000 kg")
+            if hasattr(self, "lbl_kpi_saved"):
+                self.lbl_kpi_saved.config(text="🎯 -- 本")
+                self.lbl_kpi_saved_sub.config(text="Weekを選択してください")
+                self.lbl_kpi_status.config(text="待機中")
+                self.lbl_kpi_status_sub.config(text="最適化後に判定します")
             return
-            
+
         w_data = self.annual_data[self.selected_week]
         before_cnt = w_data['containers_before']
-        
+
         if self.is_optimized:
             after_cnt = len(self.all_containers)
             diff = before_cnt - after_cnt
-            status_text = f"【 Week {self.selected_week} 】 最適化後: {before_cnt}本 ➡ {after_cnt}本 (削減: {diff}本)"
-            self.lbl_preview_title.config(text=status_text, fg=Colors.ACCENT_MAIN)
-            
-            self.lbl_kpi_main.config(text=f"🎯 削減：{diff} 本")
-            if after_cnt > 0:
-                fill = int((before_cnt / after_cnt) * 62)
-                self.lbl_kpi_sub.config(text=f"平均効率：{fill}%")
+            status_text = f"Week {self.selected_week} / 最適化後：{before_cnt}本 → {after_cnt}本"
+            self.lbl_preview_title.config(text=status_text, fg=Colors.TEXT_MAIN)
+
+            if hasattr(self, "lbl_kpi_saved"):
+                self.lbl_kpi_saved.config(text=f"🎯 {diff} 本")
+                self.lbl_kpi_saved_sub.config(text=f"現状 {before_cnt}本 → 最適化後 {after_cnt}本")
+
+                if diff > 0:
+                    self.lbl_kpi_status.config(text="採用候補")
+                    self.lbl_kpi_status_sub.config(text="本数削減あり。重量・配置を確認してください")
+                else:
+                    self.lbl_kpi_status.config(text="要確認")
+                    self.lbl_kpi_status_sub.config(text="本数削減なし。条件変更を検討してください")
         else:
-            status_text = f"【 Week {self.selected_week} 】 現状: {before_cnt}本  ▶ 最適化を実行してください"
-            self.lbl_preview_title.config(text=status_text, fg="white")
-            # 3Dをクリア
-            for w in self.canvas_frame.winfo_children(): w.destroy()
+            status_text = f"Week {self.selected_week} / 現状：{before_cnt}本"
+            self.lbl_preview_title.config(text=status_text, fg=Colors.TEXT_MAIN)
+
+            if hasattr(self, "lbl_kpi_saved"):
+                self.lbl_kpi_saved.config(text="🎯 -- 本")
+                self.lbl_kpi_saved_sub.config(text=f"荷物数：{len(w_data['items'])}個")
+                self.lbl_kpi_status.config(text="未最適化")
+                self.lbl_kpi_status_sub.config(text="「最適化する」を押してください")
+
+            for w in self.canvas_frame.winfo_children():
+                w.destroy()
             self.lbl_weight.config(text=f"荷物数: {len(w_data['items'])}個")
+
+    def _calc_container_fill_rate(self, container):
+        """体積ベースの充填率を返す"""
+        if not container or not container.items:
+            return 0
+        used = sum(i.w * i.d * i.h for i in container.items)
+        total = container.w * container.d * container.h
+        return int((used / total) * 100)
+
+    def _calc_container_empty_m3(self, container):
+        """空き体積m3を返す"""
+        if not container:
+            return 0
+        used = sum(i.w * i.d * i.h for i in container.items)
+        total = container.w * container.d * container.h
+        return max(0, (total - used) / 1_000_000_000)
 
     def update_3d_display(self):
         """3D表示の更新（複数コンテナの切り替え）"""
-        if not hasattr(self, 'all_containers') or not self.all_containers: return
-        
-        self.container = self.all_containers[self.current_container_idx] # [FIX] self.containerを更新
+        if not hasattr(self, 'all_containers') or not self.all_containers:
+            return
+
+        self.container = self.all_containers[self.current_container_idx]
         cog, devs = self.container.get_cog_stats()
 
-        # UI更新
         tot_w = self.container.total_weight
         mx_w = self.container.max_weight
         pct_w = (tot_w / mx_w) * 100
-        self.lbl_weight.config(text=f"コンテナ {self.current_container_idx+1}/{len(self.all_containers)} | 重量: {tot_w:,}kg")
-        self.weight_progress['value'] = pct_w
-        
+        fill_rate = self._calc_container_fill_rate(self.container)
+        empty_m3 = self._calc_container_empty_m3(self.container)
+
+        self.lbl_weight.config(
+            text=f"C{self.current_container_idx+1}/{len(self.all_containers)} | 重量 {tot_w:,}kg | 充填率 {fill_rate}% | 空き {empty_m3:.1f}m³"
+        )
+        self.weight_progress['value'] = min(pct_w, 100)
+
         self.draw_3d_graph(cog, devs)
         self._render_container_selector()
 
     def _render_container_selector(self):
+        """複数コンテナの切替をカードUIで表示"""
         if hasattr(self, 'selector_frame'):
             self.selector_frame.destroy()
 
-        self.selector_frame = tk.Frame(
-            self.canvas_frame,
-            bg=Colors.BG_MAIN
-        )
-        self.selector_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=8)
+        self.selector_frame = tk.Frame(self.canvas_frame, bg=Colors.BG_CARD_DARK)
+        self.selector_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=8)
+
+        tk.Label(
+            self.selector_frame,
+            text="コンテナ一覧",
+            bg=Colors.BG_CARD_DARK,
+            fg=Colors.TEXT_DIM,
+            font=Fonts.SMALL_BOLD
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
         for i, c in enumerate(self.all_containers):
-
             active = i == self.current_container_idx
+            fill_rate = self._calc_container_fill_rate(c)
+            weight_rate = int((c.total_weight / c.max_weight) * 100) if c.max_weight else 0
 
             bg = Colors.ACCENT_MAIN if active else Colors.BG_CARD
-            fg = "black" if active else "white"
+            fg = Colors.TEXT_DARK if active else Colors.TEXT_MAIN
 
-            pct = int((c.total_weight / c.max_weight) * 100)
+            status = "OK"
+            if fill_rate < 55:
+                status = "空き多め"
+            elif fill_rate >= 90:
+                status = "高充填"
 
             card = tk.Button(
                 self.selector_frame,
-                text=f"C{i+1}\n{pct}%",
+                text=f"C{i+1}\n充填 {fill_rate}%\n重量 {weight_rate}% / {status}",
                 bg=bg,
                 fg=fg,
+                activebackground=Colors.ACCENT_HOT,
+                activeforeground=Colors.TEXT_DARK,
                 relief="flat",
-                width=8,
-                height=3,
-                font=("Meiryo", 9, "bold"),
-                command=lambda idx=i: self.set_active_container(idx)
+                width=15,
+                height=4,
+                font=("Meiryo", 8, "bold"),
+                command=lambda idx=i: self.set_active_container(idx),
+                cursor="hand2"
             )
-            card.pack(side=tk.LEFT, padx=5)
+            card.pack(side=tk.LEFT, padx=4)
 
     def set_active_container(self, idx):
         self.current_container_idx = idx
@@ -920,10 +1171,10 @@ class App:
             
             plt.style.use('dark_background')
             self.fig = plt.figure(figsize=(8, 6), dpi=100)
-            self.fig.patch.set_facecolor(Colors.BG_MAIN)
+            self.fig.patch.set_facecolor(Colors.BG_CARD_DARK)
             self.ax = self.fig.add_subplot(111, projection='3d')
-            self.ax.set_facecolor(Colors.BG_MAIN)
-            self.ax.set_title("Vanning Optimizer: Layout View", fontsize=14, color=Colors.ACCENT_MAIN)
+            self.ax.set_facecolor(Colors.BG_CARD_DARK)
+            self.ax.set_title("Layout View", fontsize=14, color=Colors.TEXT_MAIN)
             c = self.container
             self.ax.set_xlim([0, c.w]); self.ax.set_ylim([0, c.d]); self.ax.set_zlim([0, c.h])
             self.ax.set_box_aspect((c.w, c.d, c.h))
@@ -985,10 +1236,10 @@ class App:
 
             self.ax.legend(loc='upper left', facecolor=Colors.BG_CARD, edgecolor=Colors.BG_PANEL, labelcolor=Colors.TEXT_MAIN)
             canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame); canvas.draw()
-            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=8)
             
             # ツールチップ用ラベル（初期は非表示）
-            self.tooltip = tk.Label(self.canvas_frame, bg="yellow", fg="black", font=Fonts.SMALL, padx=5, pady=2, relief="solid", borderwidth=1)
+            self.tooltip = tk.Label(self.canvas_frame, bg=Colors.ACCENT_MAIN, fg=Colors.TEXT_DARK, font=Fonts.SMALL, padx=5, pady=2, relief="solid", borderwidth=1)
             self.canvas_frame.update_idletasks() # 強制更新
         except Exception as e:
             self.append_log(f"❌ 描画エラー: {str(e)}", Colors.ERROR)
