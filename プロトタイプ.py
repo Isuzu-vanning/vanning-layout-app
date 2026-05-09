@@ -1134,8 +1134,8 @@ class App:
         self.canvas_frame = self.after_frame
         self.update_3d_display()
 
-        # Afterタブをアクティブにする
-        self.canvas_notebook.select(self.after_frame)
+        # ユーザー要望: まずはBefore（最適化前）から見せる
+        self.canvas_notebook.select(self.before_frame)
 
         self._update_comparison_display()
 
