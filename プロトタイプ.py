@@ -510,6 +510,11 @@ class App:
         tk.Label(fill_frame, text="目標積載率 (%):", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, font=Fonts.BODY_BOLD).pack(side=tk.LEFT)
         tk.Spinbox(fill_frame, from_=50, to=100, textvariable=self.target_fill_rate_var, width=5, font=Fonts.BODY).pack(side=tk.LEFT, padx=(5,0))
 
+        # --- [NEW] 要件3: 前倒し期間のパラメータ化 ---
+        self.max_forward_weeks_var = tk.IntVar(value=4)
+        tk.Label(fill_frame, text=" 前倒し許容(週):", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, font=Fonts.BODY_BOLD).pack(side=tk.LEFT, padx=(10,0))
+        tk.Spinbox(fill_frame, from_=0, to=12, textvariable=self.max_forward_weeks_var, width=3, font=Fonts.BODY).pack(side=tk.LEFT, padx=(5,0))
+
         # --- [NEW] 要件2: CSVエクスポートボタン ---
         export_btn = tk.Button(
             self.left_panel,
@@ -1572,7 +1577,7 @@ class App:
             return None
 
     def calculate_annual_stats(self):
-        """年間データの統計を精緻に計算（実データ準拠）"""
+        """年間データの統計を精緻に計算（実データ準拠・前倒しロジック実装）"""
         stats = {
             'weekly_before': [],
             'weekly_after': [],
@@ -1583,32 +1588,69 @@ class App:
         }
         
         container_vol = 12000 * 2300 * 2400
+        target_rate = self.target_fill_rate_var.get() / 100.0 if hasattr(self, 'target_fill_rate_var') else 0.90
+        max_forward = self.max_forward_weeks_var.get() if hasattr(self, 'max_forward_weeks_var') else 4
         
+        # 処理用にデータをディープコピーして平準化するキューを作る
+        weeks_data = {}
+        for w in range(1, 54): # データは最大53週まである可能性がある
+            data = self.annual_data.get(w, {'items': [], 'containers_before': 0})
+            items = []
+            for item in data['items']:
+                m = PARTS_MASTER[item['key']]
+                vol = m['w'] * m['d'] * m['h']
+                weight = item.get('weight', m['weight'])
+                items.append({'vol': vol, 'weight': weight, 'key': item['key'], 'original_week': w})
+            weeks_data[w] = {
+                'items': items,
+                'containers_before': data['containers_before']
+            }
+
         # 52週分をループ
         for w in range(1, 53):
-            data = self.annual_data.get(w, {'items': [], 'containers_before': 0})
-            items = data['items']
-            num_before = data['containers_before']
+            items = weeks_data[w]['items']
+            num_before = weeks_data[w]['containers_before']
             
-            if not items:
+            if not items and num_before == 0:
                 stats['weekly_before'].append(num_before)
                 stats['weekly_after'].append(0)
                 continue
 
-            # 最強モードを想定した集約計算
-            total_vol = 0
-            total_weight = 0
-            for item in items:
-                m = PARTS_MASTER[item['key']]
-                total_vol += m['w'] * m['d'] * m['h']
-                total_weight += item.get('weight', 1000)
+            # 現在の週の荷物をコンテナに詰める
+            total_vol = sum(i['vol'] for i in items)
+            total_weight = sum(i['weight'] for i in items)
             
-            # 体積と重量の両面から必要な本数を算出（充填率90%を目標値とする）
-            num_after_vol = int(np.ceil(total_vol / (container_vol * 0.90)))
-            num_after_weight = int(np.ceil(total_weight / 25000)) # 25t制限
-            num_after = max(1, num_after_vol, num_after_weight)
+            num_after_vol = total_vol / (container_vol * target_rate)
+            num_after_weight = total_weight / 25000
             
-            # 異常値（現状より増えてしまう等）を防止
+            # 必要な整数コンテナ数
+            required_containers = int(np.ceil(max(num_after_vol, num_after_weight)))
+            
+            # [NEW] 前倒しロジック
+            # 余ったスペース（体積・重量）を計算
+            used_vol = required_containers * (container_vol * target_rate)
+            used_weight = required_containers * 25000
+            
+            rem_vol = used_vol - total_vol
+            rem_weight = used_weight - total_weight
+            
+            # 前倒し可能な週から荷物を引っ張ってくる
+            if max_forward > 0 and required_containers > 0:
+                for fw in range(w + 1, min(w + 1 + max_forward, 54)):
+                    future_items = weeks_data[fw]['items']
+                    # 引っ張る荷物（簡易化のため単純に順番に）
+                    items_to_move = []
+                    for f_item in future_items:
+                        if f_item['vol'] <= rem_vol and f_item['weight'] <= rem_weight:
+                            items_to_move.append(f_item)
+                            rem_vol -= f_item['vol']
+                            rem_weight -= f_item['weight']
+                    
+                    # 未来の週から削除
+                    for moved in items_to_move:
+                        future_items.remove(moved)
+            
+            num_after = max(1, required_containers)
             if num_before > 0:
                 num_after = min(num_after, num_before)
             
@@ -1622,7 +1664,7 @@ class App:
         
         stats['reduction_rate'] = (stats['saved_containers'] / stats['total_before'] * 100) if stats['total_before'] > 0 else 0
         stats['efficiency_before'] = 62.5 # 実績ベースの想定充填率
-        stats['efficiency_after'] = (stats['total_before'] / stats['total_after'] * 62.5) if stats['total_after'] > 0 else 0
+        stats['efficiency_gain'] = (stats['total_before'] / stats['total_after'] * 62.5 - 62.5) if stats['total_after'] > 0 else 0
         
         return stats
 
