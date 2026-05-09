@@ -369,6 +369,9 @@ class App:
         
         # メインレイアウト構築
         self._build_notebook_layout()
+        
+        # ツリーの初期化（これをやっておかないとロード時にエラーになる）
+        self._populate_treeview()
 
         # データの初期化（ダミーデータ読込は廃止）
         self.annual_data = {}
@@ -444,14 +447,15 @@ class App:
         self.root.deiconify()
         
         # 初期描画
-        self._populate_treeview()
         self._update_dashboard_tab()
         self.notebook.select(self.tab_workspace)
         
         # 最初の週を選択状態にする
         if weeks:
             first_week = min(weeks)
-            self.tree.selection_set(f"W_{first_week}")
+            # Treeviewの中に該当アイテムがあるかチェックしてから選択する
+            if self.tree.exists(f"W_{first_week}"):
+                self.tree.selection_set(f"W_{first_week}")
         self.notebook.select(self.tab_workspace)
 
     def _build_notebook_layout(self):
