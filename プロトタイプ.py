@@ -400,31 +400,30 @@ class App:
         self.btn_startup_load.pack(pady=10)
 
     def startup_load_file(self):
-        filepath = filedialog.askopenfilename(
-            title="マニフェストファイルを選択",
-            filetypes=[("Excel/CSV Files", "*.xlsx *.xls *.csv")]
-        )
-        if not filepath: return
-        
+        # 既存の読込処理をそのまま流用する（内部でファイル選択ダイアログも出る）
         self.btn_startup_load.config(text="読込中...", state=tk.DISABLED)
         self.startup_win.update()
         
         try:
-            self._load_data_from_file(filepath)
+            self.load_manifest_file()
             
-            self.btn_startup_load.pack_forget()
-            tk.Label(self.btn_startup_load.master, text="✅ 読込完了！", font=("Meiryo", 14, "bold"), bg=Colors.BG_MAIN, fg=Colors.SUCCESS).pack(pady=10)
-            
-            self.btn_startup_optimize = tk.Button(
-                self.btn_startup_load.master, text="🚀 全期間の一括最適化を開始", font=("Meiryo", 16, "bold"), 
-                bg=Colors.SUCCESS, fg=Colors.TEXT_DARK, 
-                command=self.startup_run_all_optimization, width=30, height=3, cursor="hand2"
-            )
-            self.btn_startup_optimize.pack(pady=20)
-            
-            self.startup_progress = ttk.Progressbar(self.btn_startup_load.master, orient="horizontal", mode="determinate", length=400)
-            self.startup_progress.pack(pady=10)
-            
+            # データがロードされたか確認
+            if self.annual_data:
+                self.btn_startup_load.pack_forget()
+                tk.Label(self.btn_startup_load.master, text="✅ 読込完了！", font=("Meiryo", 14, "bold"), bg=Colors.BG_MAIN, fg=Colors.SUCCESS).pack(pady=10)
+                
+                self.btn_startup_optimize = tk.Button(
+                    self.btn_startup_load.master, text="🚀 全期間の一括最適化を開始", font=("Meiryo", 16, "bold"), 
+                    bg=Colors.SUCCESS, fg=Colors.TEXT_DARK, 
+                    command=self.startup_run_all_optimization, width=30, height=3, cursor="hand2"
+                )
+                self.btn_startup_optimize.pack(pady=20)
+                
+                self.startup_progress = ttk.Progressbar(self.btn_startup_load.master, orient="horizontal", mode="determinate", length=400)
+                self.startup_progress.pack(pady=10)
+            else:
+                self.btn_startup_load.config(text="📁 データファイルを選択", state=tk.NORMAL)
+                
         except Exception as e:
             messagebox.showerror("エラー", f"ファイルの読み込みに失敗しました:\n{e}")
             self.btn_startup_load.config(text="📁 データファイルを選択", state=tk.NORMAL)
