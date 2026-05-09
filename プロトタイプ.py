@@ -370,12 +370,89 @@ class App:
         # メインレイアウト構築
         self._build_notebook_layout()
 
-        # データの初期化
-        self.generate_random_annual_data()
+        # データの初期化（ダミーデータ読込は廃止）
+        self.annual_data = {}
+        
+        # メイン画面を一旦隠してスタートアップ画面を表示
+        self.root.withdraw()
+        self.show_startup_screen()
+
+    def show_startup_screen(self):
+        """アプリ起動時のファイル読込＆初期最適化画面"""
+        self.startup_win = tk.Toplevel(self.root)
+        self.startup_win.title("Vanning Optimizer - スタートアップ")
+        self.startup_win.geometry("800x600")
+        self.startup_win.configure(bg=Colors.BG_MAIN)
+        # 閉じるボタンを無効化（ファイルを選ぶまで進めない）
+        self.startup_win.protocol("WM_DELETE_WINDOW", lambda: self.root.destroy())
+        
+        frame = tk.Frame(self.startup_win, bg=Colors.BG_MAIN)
+        frame.place(relx=0.5, rely=0.5, anchor="center")
+        
+        tk.Label(frame, text="Vanning Optimizer", font=("Impact", 48), bg=Colors.BG_MAIN, fg=Colors.TEXT_MAIN).pack(pady=(0, 20))
+        tk.Label(frame, text="対象のデータファイル（Excel/CSV）を読み込んでください", font=Fonts.HEADER, bg=Colors.BG_MAIN, fg=Colors.TEXT_DIM).pack(pady=(0, 40))
+        
+        self.btn_startup_load = tk.Button(
+            frame, text="📁 データファイルを選択", font=("Meiryo", 16, "bold"), 
+            bg=Colors.ACCENT_MAIN, fg=Colors.TEXT_DARK, 
+            command=self.startup_load_file, width=30, height=3, cursor="hand2"
+        )
+        self.btn_startup_load.pack(pady=10)
+
+    def startup_load_file(self):
+        filepath = filedialog.askopenfilename(
+            title="マニフェストファイルを選択",
+            filetypes=[("Excel/CSV Files", "*.xlsx *.xls *.csv")]
+        )
+        if not filepath: return
+        
+        self.btn_startup_load.config(text="読込中...", state=tk.DISABLED)
+        self.startup_win.update()
+        
+        try:
+            self._load_data_from_file(filepath)
+            
+            self.btn_startup_load.pack_forget()
+            tk.Label(self.btn_startup_load.master, text="✅ 読込完了！", font=("Meiryo", 14, "bold"), bg=Colors.BG_MAIN, fg=Colors.SUCCESS).pack(pady=10)
+            
+            self.btn_startup_optimize = tk.Button(
+                self.btn_startup_load.master, text="🚀 全期間の一括最適化を開始", font=("Meiryo", 16, "bold"), 
+                bg=Colors.SUCCESS, fg=Colors.TEXT_DARK, 
+                command=self.startup_run_all_optimization, width=30, height=3, cursor="hand2"
+            )
+            self.btn_startup_optimize.pack(pady=20)
+            
+            self.startup_progress = ttk.Progressbar(self.btn_startup_load.master, orient="horizontal", mode="determinate", length=400)
+            self.startup_progress.pack(pady=10)
+            
+        except Exception as e:
+            messagebox.showerror("エラー", f"ファイルの読み込みに失敗しました:\n{e}")
+            self.btn_startup_load.config(text="📁 データファイルを選択", state=tk.NORMAL)
+
+    def startup_run_all_optimization(self):
+        """読み込んだ全Weekに対して事前に最適化を回しておく"""
+        self.btn_startup_optimize.config(text="最適化中... (少々お待ちください)", state=tk.DISABLED)
+        weeks = list(self.annual_data.keys())
+        self.startup_progress["maximum"] = len(weeks)
+        
+        for i, week in enumerate(weeks):
+            self.calculate_optimization_for_week(week)
+            self.startup_progress["value"] = i + 1
+            self.startup_win.update()
+            
+        # スタートアップ画面を閉じてメイン画面へ
+        self.startup_win.destroy()
+        self.root.deiconify()
+        
+        # 初期描画
         self._populate_treeview()
         self._update_dashboard_tab()
+        self.notebook.select(self.tab_workspace)
         
-        # [FIX] 現場向けに初期表示を「バンニング作業」タブにする
+        # 最初の週を選択状態にする
+        if weeks:
+            first_week = min(weeks)
+            self.tree.selection_set(f"W_{first_week}")
         self.notebook.select(self.tab_workspace)
 
     def _build_notebook_layout(self):
@@ -1059,22 +1136,9 @@ class App:
             self.append_log(f"❌ CSV出力失敗: {str(e)}", Colors.ERROR)
             messagebox.showerror("エラー", f"CSV出力中にエラーが発生しました:\n{e}")
 
-    def run_simulation_if_selected(self, *args):
-        """パラメータが変更された際に自動でシミュレーションを再実行する"""
-        if getattr(self, 'selected_node_type', None) == "WEEK":
-            if self.selected_week in self.annual_data and self.annual_data[self.selected_week]['items']:
-                self.run_simulation()
-
-    def run_simulation(self):
-        """Before（現状）とAfter（最適化後）を同時にシミュレーションして比較・表示する"""
-        if not self.annual_data:
-            self.append_log("⚠️ データが読み込まれていません。")
-            return
-        if not self.selected_week or self.selected_week not in self.annual_data:
-            self.append_log("⚠️ 対象のWeekが選択されていないか、データがありません。左のツリーからWeekを選択してください。")
-            return
-
-        w_data = self.annual_data[self.selected_week]
+    def calculate_optimization_for_week(self, week_num):
+        """特定のWeekの最適化計算だけを行い、結果を辞書に保存する（描画はしない）"""
+        w_data = self.annual_data[week_num]
         all_items = []
         for i, item_data in enumerate(w_data['items']):
             key = item_data['key']
@@ -1082,43 +1146,66 @@ class App:
             item = Item(key, master, i, item_data.get('weight', master['weight']))
             all_items.append(item)
             
-        if not all_items: return
-
-        self.append_log(f"🚀 Week {self.selected_week} の最適化シミュレーションを実行中...")
+        if not all_items:
+            w_data['containers_before_list'] = []
+            w_data['containers_after_list'] = []
+            w_data['containers_before'] = 0
+            return
 
         # --- 1. Before（現状）の計算 ---
-        # 現場の現状（非効率な積載）をシミュレートするため、積載率60%で来た順番に積む
-        self.containers_before = []
+        containers_before = []
         rem_before = all_items.copy()
         while rem_before:
             c = Container(target_fill_rate=60)
             c.load_items(rem_before)
-            self.containers_before.append(c)
+            containers_before.append(c)
             rem_before = c.unloaded_items
-            if len(self.containers_before) > 100: break
+            if len(containers_before) > 100: break
             
-        w_data['containers_before'] = len(self.containers_before)
-        
-        # アイテムに元コンテナIDを正しく付与（これでAfterでの色が正しく分かれる）
-        for c_idx, c in enumerate(self.containers_before):
+        w_data['containers_before'] = len(containers_before)
+        for c_idx, c in enumerate(containers_before):
             for item in c.items:
                 item.source_container_id = c_idx + 1
 
         # --- 2. After（最適化後）の計算 ---
-        self.containers_after = []
+        containers_after = []
         rem_after = all_items.copy()
-        # 体積と重量の大きい順にソート（テトリス最適化）
         rem_after.sort(key=lambda x: (x.w * x.d * x.h, x.weight), reverse=True)
-        
         target_rate = self.target_fill_rate_var.get() if hasattr(self, 'target_fill_rate_var') else 100
         while rem_after:
             c = Container(target_fill_rate=target_rate)
             c.load_items(rem_after)
-            self.containers_after.append(c)
+            containers_after.append(c)
             rem_after = c.unloaded_items
-            if len(self.containers_after) > 100: break
+            if len(containers_after) > 100: break
+            
+        w_data['containers_before_list'] = containers_before
+        w_data['containers_after_list'] = containers_after
 
-        self.append_log(f"✅ 最適化完了: {len(self.containers_before)}本 ➡ {len(self.containers_after)}本に削減！")
+    def run_simulation_if_selected(self, *args):
+        """パラメータが変更された際に自動でシミュレーションを再実行する"""
+        if getattr(self, 'selected_node_type', None) == "WEEK":
+            if self.selected_week in self.annual_data and self.annual_data[self.selected_week]['items']:
+                self.calculate_optimization_for_week(self.selected_week)
+                self.run_simulation()
+
+    def run_simulation(self):
+        """計算済みのデータを描画する"""
+        if not self.annual_data:
+            self.append_log("⚠️ データが読み込まれていません。")
+            return
+        if not self.selected_week or self.selected_week not in self.annual_data:
+            self.append_log("⚠️ 対象のWeekが選択されていないか、データがありません。")
+            return
+
+        w_data = self.annual_data[self.selected_week]
+        
+        self.containers_before = w_data.get('containers_before_list', [])
+        self.containers_after = w_data.get('containers_after_list', [])
+        
+        if not self.containers_before: return
+
+        self.append_log(f"✅ Week {self.selected_week} の最適化結果を表示しました。")
         self.is_optimized = True
 
         # --- 3. 描画 ---
