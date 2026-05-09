@@ -374,6 +374,9 @@ class App:
         self.generate_random_annual_data()
         self._populate_treeview()
         self._update_dashboard_tab()
+        
+        # [FIX] 現場向けに初期表示を「バンニング作業」タブにする
+        self.notebook.select(self.tab_workspace)
 
     def _build_notebook_layout(self):
         # 内部ログ保持用
@@ -576,10 +579,10 @@ class App:
 
         self.kpi_saved_card = tk.Frame(self.kpi_frame, bg=Colors.BG_CARD, padx=20, pady=16)
         self.kpi_saved_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
-        tk.Label(self.kpi_saved_card, text="削減効果", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL_BOLD).pack(anchor="w")
-        self.lbl_kpi_saved = tk.Label(self.kpi_saved_card, text="🎯 -- 本", bg=Colors.BG_CARD, fg=Colors.TEXT_MAIN, font=("Meiryo", 24, "bold"))
+        tk.Label(self.kpi_saved_card, text="削減結果 (Before -> After)", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL_BOLD).pack(anchor="w")
+        self.lbl_kpi_saved = tk.Label(self.kpi_saved_card, text="🎯 -- 本", bg=Colors.BG_CARD, fg=Colors.TEXT_MAIN, font=("Impact", 28))
         self.lbl_kpi_saved.pack(anchor="w", pady=(4, 0))
-        self.lbl_kpi_saved_sub = tk.Label(self.kpi_saved_card, text="Weekを選択してください", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL)
+        self.lbl_kpi_saved_sub = tk.Label(self.kpi_saved_card, text="Weekを選択してください", bg=Colors.BG_CARD, fg=Colors.ACCENT_MAIN, font=Fonts.BODY_BOLD)
         self.lbl_kpi_saved_sub.pack(anchor="w")
 
         self.kpi_status_card = tk.Frame(self.kpi_frame, bg=Colors.BG_CARD, padx=20, pady=16)
@@ -1156,12 +1159,12 @@ class App:
             self.lbl_preview_title.config(text=status_text, fg=Colors.TEXT_MAIN)
 
             if hasattr(self, "lbl_kpi_saved"):
-                self.lbl_kpi_saved.config(text=f"🎯 {diff} 本")
-                self.lbl_kpi_saved_sub.config(text=f"現状 {before_cnt}本 → 最適化後 {after_cnt}本")
+                self.lbl_kpi_saved.config(text=f"🎯 -{diff}本 削減！")
+                self.lbl_kpi_saved_sub.config(text=f"現状 {before_cnt}本  ➡  最適化後 {after_cnt}本")
 
                 if diff > 0:
                     self.lbl_kpi_status.config(text="採用候補")
-                    self.lbl_kpi_status_sub.config(text="本数削減あり。重量・配置を確認してください")
+                    self.lbl_kpi_status_sub.config(text="本数削減あり。色分けは元のコンテナIDを表します")
                 else:
                     self.lbl_kpi_status.config(text="要確認")
                     self.lbl_kpi_status_sub.config(text="本数削減なし。条件変更を検討してください")
@@ -1171,7 +1174,7 @@ class App:
 
             if hasattr(self, "lbl_kpi_saved"):
                 self.lbl_kpi_saved.config(text="🎯 -- 本")
-                self.lbl_kpi_saved_sub.config(text=f"荷物数：{len(w_data['items'])}個")
+                self.lbl_kpi_saved_sub.config(text=f"現在 {before_cnt}本 (最適化待機中)")
                 self.lbl_kpi_status.config(text="未最適化")
                 self.lbl_kpi_status_sub.config(text="「最適化する」を押してください")
 
@@ -1297,14 +1300,13 @@ class App:
                          [(xx[i], yy[i], zz[i]) for i in [0, 3, 7, 4]], [(xx[i], yy[i], zz[i]) for i in [1, 2, 6, 5]],
                          [(xx[i], yy[i], zz[i]) for i in [0, 1, 2, 3]], [(xx[i], yy[i], zz[i]) for i in [4, 5, 6, 7]]]
                 
-                # 品名ごとに色を分けて視認性を向上（パステル調のパレット）
-                import zlib
+                # 元のコンテナごとに色を分けて、どう移動してきたか（集約されたか）を視覚化する
                 if is_error:
                     face_color = Colors.ERROR
                 else:
-                    color_idx = zlib.crc32(item.name.encode()) % 10
+                    cid = item.source_container_id if getattr(item, 'source_container_id', None) is not None else 0
                     palette = ["#3498db", "#2ecc71", "#9b59b6", "#f1c40f", "#e67e22", "#1abc9c", "#e74c3C", "#34495e", "#95a5a6", "#d35400"]
-                    face_color = palette[color_idx]
+                    face_color = palette[cid % len(palette)]
                 
                 # エッジを白にして太く、透明度を下げて奥の荷物を見やすくする
                 poly = Poly3DCollection(verts, facecolors=face_color, linewidths=1.0, edgecolors='white', alpha=0.6, zorder=1)
