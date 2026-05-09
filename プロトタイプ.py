@@ -26,28 +26,28 @@ FONT_FAMILY = get_jp_font_family()
 plt.rcParams['font.family'] = FONT_FAMILY
 
 class Colors:
-    # LINE着せ替え風：くすみブルー × ベージュ
-    BG_MAIN     = "#6F8FA3"   # アプリ全体の背景
-    BG_PANEL    = "#7C9CAF"   # サイドバー・ヘッダー
-    BG_CARD     = "#89A9BA"   # カード背景
-    BG_CARD_DARK= "#5F7F93"   # 3Dビュー周辺
-    ACCENT_MAIN = "#E8D5A2"   # 選択・主ボタン
-    ACCENT_HOT  = "#D8C18A"   # 強調
+    # 現場向け高コントラスト（黒・濃紺ベース）
+    BG_MAIN     = "#1E2A38"   # アプリ全体の背景
+    BG_PANEL    = "#2C3E50"   # サイドバー・ヘッダー
+    BG_CARD     = "#34495E"   # カード背景
+    BG_CARD_DARK= "#1A252F"   # 3Dビュー周辺
+    ACCENT_MAIN = "#F1C40F"   # 選択・主ボタン（視認性の高い黄色）
+    ACCENT_HOT  = "#E67E22"   # 強調（オレンジ）
     TEXT_MAIN   = "#FFFFFF"
-    TEXT_DIM    = "#E6EEF2"
-    TEXT_DARK   = "#2D3D46"
-    SUCCESS     = "#BDE5C8"
-    WARNING     = "#FFD27F"
-    ERROR       = "#FF8C8C"
+    TEXT_DIM    = "#BDC3C7"
+    TEXT_DARK   = "#1A252F"
+    SUCCESS     = "#2ECC71"
+    WARNING     = "#F39C12"
+    ERROR       = "#E74C3C"
 
 class Fonts:
-    HEADER = ("Meiryo", 14, "bold")
-    BODY = ("Meiryo", 10)
-    BODY_BOLD = ("Meiryo", 10, "bold")
-    SMALL = ("Meiryo", 8)
-    SMALL_BOLD = ("Meiryo", 8, "bold")
-    MONO = ("Consolas", 11)
-    LARGE_VAL = ("Impact", 32)
+    HEADER = ("Meiryo", 18, "bold") # 現場タブレット向け拡大
+    BODY = ("Meiryo", 12)
+    BODY_BOLD = ("Meiryo", 12, "bold")
+    SMALL = ("Meiryo", 10)
+    SMALL_BOLD = ("Meiryo", 10, "bold")
+    MONO = ("Consolas", 12)
+    LARGE_VAL = ("Impact", 42)
 
 # --- 2. 部品マスタ ---
 def load_parts_master(file_path='parts_master.xlsx'):
@@ -388,7 +388,7 @@ class App:
             "TNotebook.Tab",
             background=Colors.BG_PANEL,
             foreground=Colors.TEXT_MAIN,
-            padding=[24, 12],
+            padding=[30, 16],
             font=Fonts.BODY_BOLD
         )
         style.map(
@@ -402,7 +402,7 @@ class App:
             foreground=Colors.TEXT_MAIN,
             fieldbackground=Colors.BG_CARD,
             borderwidth=0,
-            rowheight=28,
+            rowheight=36,
             font=Fonts.BODY
         )
         style.map(
@@ -416,7 +416,8 @@ class App:
             background=Colors.ACCENT_MAIN,
             bordercolor=Colors.BG_PANEL,
             lightcolor=Colors.ACCENT_MAIN,
-            darkcolor=Colors.ACCENT_MAIN
+            darkcolor=Colors.ACCENT_MAIN,
+            thickness=30
         )
 
         self.notebook = ttk.Notebook(self.root)
@@ -601,7 +602,7 @@ class App:
             activebackground=Colors.ACCENT_HOT,
             activeforeground=Colors.TEXT_DARK,
             relief="flat",
-            font=("Meiryo", 12, "bold"),
+            font=("Meiryo", 14, "bold"),
             command=self.run_simulation,
             height=2,
             width=18,
