@@ -842,8 +842,8 @@ class App:
         # 2. 主要カラムの特定
         date_col = next((col for col in df.columns if any(k in str(col) for k in ["日付", "Date", "月", "日", "Week", "期間"])), None)
         name_col = next((col for col in df.columns if any(k in str(col) for k in ["分類", "名称", "品名", "Name", "資材名称"])), df.columns[0] if len(df.columns) > 0 else None)
-        weight_col = next((col for col in df.columns if "重量" in str(col) or "Weight" in str(col)]), None)
-        qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col) or "Q'ty" in str(col) or "Qty" in str(col)]), None)
+        weight_col = next((col for col in df.columns if "重量" in str(col) or "Weight" in str(col)), None)
+        qty_col = next((col for col in df.columns if "数量" in str(col) or "個数" in str(col) or "Q'ty" in str(col) or "Qty" in str(col)), None)
 
         # 3. データのパースと数値クリーンアップ (pd.to_numeric 等で堅牢に処理)
         if qty_col:
