@@ -475,18 +475,7 @@ class App:
             font=("Meiryo", 15, "bold")
         ).pack(anchor="w", pady=(18, 6), padx=18)
 
-        # 操作ガイド
-        guide = tk.Frame(self.left_panel, bg=Colors.BG_CARD, padx=14, pady=12)
-        guide.pack(fill=tk.X, padx=15, pady=(0, 12))
-        tk.Label(guide, text="操作フロー", bg=Colors.BG_CARD, fg=Colors.TEXT_MAIN, font=Fonts.BODY_BOLD).pack(anchor="w")
-        tk.Label(
-            guide,
-            text="① Week選択\n② 最適化する\n③ 削減結果を確認",
-            bg=Colors.BG_CARD,
-            fg=Colors.TEXT_DIM,
-            justify=tk.LEFT,
-            font=Fonts.SMALL
-        ).pack(anchor="w", pady=(6, 0))
+
 
         self.tree = ttk.Treeview(self.left_panel, selectmode="browse", show="tree")
         self.tree.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 12))
@@ -512,12 +501,12 @@ class App:
         fill_frame = tk.Frame(self.left_panel, bg=Colors.BG_PANEL)
         fill_frame.pack(fill=tk.X, padx=15, pady=(0, 10))
         tk.Label(fill_frame, text="目標積載率 (%):", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, font=Fonts.BODY_BOLD).pack(side=tk.LEFT)
-        tk.Spinbox(fill_frame, from_=50, to=100, textvariable=self.target_fill_rate_var, width=5, font=Fonts.BODY).pack(side=tk.LEFT, padx=(5,0))
+        tk.Spinbox(fill_frame, from_=50, to=100, textvariable=self.target_fill_rate_var, width=5, font=Fonts.BODY, command=self.run_simulation_if_selected).pack(side=tk.LEFT, padx=(5,0))
 
         # --- [NEW] 要件3: 前倒し期間のパラメータ化 ---
         self.max_forward_weeks_var = tk.IntVar(value=4)
         tk.Label(fill_frame, text=" 前倒し許容(週):", bg=Colors.BG_PANEL, fg=Colors.TEXT_MAIN, font=Fonts.BODY_BOLD).pack(side=tk.LEFT, padx=(10,0))
-        tk.Spinbox(fill_frame, from_=0, to=12, textvariable=self.max_forward_weeks_var, width=3, font=Fonts.BODY).pack(side=tk.LEFT, padx=(5,0))
+        tk.Spinbox(fill_frame, from_=0, to=12, textvariable=self.max_forward_weeks_var, width=3, font=Fonts.BODY, command=self.run_simulation_if_selected).pack(side=tk.LEFT, padx=(5,0))
 
         # --- [NEW] 要件2: CSVエクスポートボタン ---
         export_btn = tk.Button(
@@ -535,17 +524,7 @@ class App:
         )
         export_btn.pack(fill=tk.X, padx=15, pady=(0, 10))
 
-        tk.Checkbutton(
-            self.left_panel,
-            text="選択時に自動最適化",
-            variable=self.auto_optimize_var,
-            bg=Colors.BG_PANEL,
-            fg=Colors.TEXT_MAIN,
-            selectcolor=Colors.BG_CARD,
-            activebackground=Colors.BG_PANEL,
-            activeforeground=Colors.TEXT_MAIN,
-            font=Fonts.SMALL
-        ).pack(anchor="w", padx=18, pady=(0, 12))
+
 
         # --- 右側（作業エリア） ---
         self.right_panel = tk.Frame(self.workspace_paned, bg=Colors.BG_MAIN)
@@ -593,39 +572,7 @@ class App:
         self.lbl_kpi_status_sub = tk.Label(self.kpi_status_card, text="最適化後に判定します", bg=Colors.BG_CARD, fg=Colors.TEXT_DIM, font=Fonts.SMALL)
         self.lbl_kpi_status_sub.pack(anchor="w")
 
-        # 主操作ボタン
-        btn_frame = tk.Frame(self.right_panel, bg=Colors.BG_MAIN)
-        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
 
-        tk.Button(
-            btn_frame,
-            text="🔄 最適化する",
-            bg=Colors.ACCENT_MAIN,
-            fg=Colors.TEXT_DARK,
-            activebackground=Colors.ACCENT_HOT,
-            activeforeground=Colors.TEXT_DARK,
-            relief="flat",
-            font=("Meiryo", 14, "bold"),
-            command=self.run_simulation,
-            height=2,
-            width=18,
-            cursor="hand2"
-        ).pack(side=tk.LEFT, padx=(0, 8))
-
-        tk.Button(
-            btn_frame,
-            text="クリア",
-            bg=Colors.BG_CARD,
-            fg=Colors.TEXT_MAIN,
-            activebackground=Colors.BG_PANEL,
-            activeforeground=Colors.TEXT_MAIN,
-            relief="flat",
-            font=Fonts.BODY_BOLD,
-            command=self.clear_all_items,
-            height=2,
-            width=12,
-            cursor="hand2"
-        ).pack(side=tk.LEFT)
 
         self.weight_progress = ttk.Progressbar(
             self.right_panel,
@@ -700,11 +647,7 @@ class App:
         
         if self.selected_node_type == "WEEK":
             if self.selected_week in self.annual_data and self.annual_data[self.selected_week]['items']:
-                # 自動最適化が有効なら実行、そうでなければUI更新のみ
-                if self.auto_optimize_var.get():
-                    self.run_simulation()
-                else:
-                    self._update_comparison_display()
+                self.run_simulation()
             else:
                 self._update_comparison_display()
         else:
@@ -1115,6 +1058,12 @@ class App:
         except Exception as e:
             self.append_log(f"❌ CSV出力失敗: {str(e)}", Colors.ERROR)
             messagebox.showerror("エラー", f"CSV出力中にエラーが発生しました:\n{e}")
+
+    def run_simulation_if_selected(self, *args):
+        """パラメータが変更された際に自動でシミュレーションを再実行する"""
+        if getattr(self, 'selected_node_type', None) == "WEEK":
+            if self.selected_week in self.annual_data and self.annual_data[self.selected_week]['items']:
+                self.run_simulation()
 
     def run_simulation(self):
         """Before（現状）とAfter（最適化後）を同時にシミュレーションして比較・表示する"""
